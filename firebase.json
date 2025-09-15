@@ -1,8 +1,5 @@
 {
-  "functions": {
-    "source": "functions",
-    "ignore": ["node_modules", ".git", "firebase-debug.log", "firebase-debug.*.log"]
-  },
+  "functions": [{ "source": "functions", "codebase": "default" }],
   "firestore": {
     "database": "(default)",
     "location": "nam5",
@@ -10,5 +7,3 @@
     "indexes": "firestore.indexes.json"
   }
 }
-
-

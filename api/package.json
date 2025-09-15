@@ -1,0 +1,11 @@
+{
+  "name": "daily-functions",
+  "private": true,
+  "main": "index.js",
+  "engines": { "node": "20" },
+  "scripts": { "lint": "echo skip", "build": "echo skip" },
+  "dependencies": {
+    "firebase-admin": "^12.5.0",
+    "firebase-functions": "^5.1.1"
+  }
+}
