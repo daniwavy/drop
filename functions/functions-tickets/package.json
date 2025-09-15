@@ -1,0 +1,10 @@
+{
+  "name": "functions-tickets",
+  "main": "index.js",
+  "engines": { "node": "20" },
+  "type": "commonjs",
+  "dependencies": {
+    "firebase-admin": "^12.5.0",
+    "firebase-functions": "^4.8.0"
+  }
+}
