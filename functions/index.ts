@@ -6,6 +6,11 @@ admin.initializeApp();
 const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
 const ACTIVE_SEASON = "S1";
+const MIN_TICKETS_FOR_RAFFLE = 50;
+
+// Re-export functions implemented in src/index.ts so the deploy packager picks them up.
+import { enterDrop, enterDropCors } from './src/index';
+export { enterDrop, enterDropCors };
 
 const SHARDS = 32;
 function hashUidToShard(uid: string, mod = SHARDS) {
@@ -21,6 +26,7 @@ export const awardTrophy = onCall({ cors: true }, async (req) => {
   if (!uid) throw new Error("unauthenticated");
   const code = String(req.data?.code || "");
   if (!code) throw new Error("invalid-argument");
+// (note: src functions are re-exported at the top of this file)
 
   const tro = await db.doc(`trophies/${code}`).get();
   if (!tro.exists) throw new Error("not-found");
@@ -181,8 +187,14 @@ export const claimDaily = onCall({ cors: true, region: 'us-central1' }, async (r
     const prevStreak = typeof data.streak === 'number' ? data.streak : 0;
     const streak = last && sameDay(last, yesterday) ? prevStreak + 1 : 1;
 
-    const rewardTable = [5, 5, 5, 10, 5, 5, 20];
-    const add = rewardTable[(streak - 1) % rewardTable.length];
+    // 7‑Tage‑Zyklus (Diamanten): ehem. 2×XP-Tag → 10 Diamanten
+    const rewardTable = [5, 5, 5, 10, 5, 5, 10];
+    // Legacy: falls ein Client noch 'double_xp' anfragt, mappe auf +10 Diamanten
+    const requested = String(req.data?.requestItem || '');
+    const legacyOverride = requested === 'double_xp' ? 10 : null;
+
+    const addRaw = rewardTable[(streak - 1) % rewardTable.length];
+    const add = legacyOverride ?? addRaw;
 
     tx.set(dayRef, { createdAt: now });
     tx.set(userRef, {
@@ -204,51 +216,181 @@ export const grantTickets = onCall({ cors: true, region: 'us-central1' }, async 
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'login required');
 
+    // Treat client amount as BASE; allow zero (no reward)
     const amountRaw = req.data?.amount;
     const amount = Math.max(0, Math.floor(Number(amountRaw ?? 0)));
-    if (!amount) return { ok: true, added: 0 };
+    const serverNowBase = admin.firestore.Timestamp.now();
+    const todayId = raffleCollectionDateId(serverNowBase.toDate());
+    if (amount === 0) {
+      // Even with zero amount, expose tix2x so the UI can trigger animations correctly
+      let tix2xZero = false;
+      try {
+        const userRef0 = db.doc(`users/${uid}`);
+        const u0 = await userRef0.get();
+        if (u0.exists) {
+          const eff0 = (u0.get('effects') || {}) as any;
+          const dt0 = eff0?.double_tickets || null;
+          if (dt0) {
+            const now0 = serverNowBase;
+            const act0 = dt0.activatedAt instanceof admin.firestore.Timestamp ? dt0.activatedAt : null;
+            const until0 = (dt0.until instanceof admin.firestore.Timestamp)
+              ? dt0.until
+              : (typeof dt0.until === 'number' ? admin.firestore.Timestamp.fromMillis(dt0.until) : null);
+            if (act0 && until0) {
+              const ms = now0.toMillis();
+              tix2xZero = ms >= act0.toMillis() && ms < until0.toMillis();
+            }
+          }
+        }
+      } catch {}
+      const mult0 = tix2xZero ? 2 : 1;
+      return { ok: true, added: 0, multiplier: mult0, capped: false, day: todayId, skipped: false, tix2x: tix2xZero } as any;
+    }
 
     const grantId: string = String(req.data?.grantId || '');
 
-    // Berlin day id
-    const todayId = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit'
-    }).format(new Date());
+    const MAX_TICKETS_PER_DAY: number | null = null; // null = unlimited per day
 
+    const userRef = db.doc(`users/${uid}`);
     const counterRef = db.doc(`users/${uid}/countersByDay/${todayId}`);
+    const rtRef = db.doc(`users/${uid}/rt/lastTicketGrant`);
 
-    await db.runTransaction(async (tx) => {
-      // READS FIRST
+    const res = await db.runTransaction(async (tx) => {
+      // IDEMPOTENCY: try to create op doc first, so concurrent transactions collide
       let gRef: FirebaseFirestore.DocumentReference | null = null;
-      let gSnap: FirebaseFirestore.DocumentSnapshot | null = null;
       if (grantId) {
         gRef = db.doc(`users/${uid}/ticketGrants/${grantId}`);
-        gSnap = await tx.get(gRef);
+        const opExists = await tx.get(gRef);
+        if (opExists.exists) {
+          const prev: any = opExists.data() || {};
+          return { applied: Number(prev.amountApplied || 0), multiplier: Number(prev.multiplier || 1), capped: !!prev.capped, day: todayId };
+        }
+        // reserve this op id; if another tx tries to create it, commit will fail and retry will hit the early-return above
+        tx.create(gRef, { status: 'pending', ts: admin.firestore.FieldValue.serverTimestamp(), day: todayId });
       }
-      const cSnap = await tx.get(counterRef);
+
+      const [uSnap, cSnap, rtSnap] = await Promise.all([
+        tx.get(userRef),
+        tx.get(counterRef),
+        tx.get(rtRef)
+      ]);
+
+      // Time-window based double tickets: active only between activatedAt and until (server time)
+      const nowTs = admin.firestore.Timestamp.now();
+      let tix2x = false;
+      if (uSnap.exists) {
+        const eff = uSnap.get('effects') || {};
+        const dt = (eff as any)?.double_tickets || null;
+        if (dt) {
+          const act = dt.activatedAt instanceof admin.firestore.Timestamp ? dt.activatedAt : null;
+          const untilTs = (dt.until instanceof admin.firestore.Timestamp)
+            ? dt.until
+            : (typeof dt.until === 'number' ? admin.firestore.Timestamp.fromMillis(dt.until) : null);
+          if (act && untilTs) {
+            const nowMs = nowTs.toMillis();
+            tix2x = nowMs >= act.toMillis() && nowMs < untilTs.toMillis();
+          }
+        }
+      }
+
+      // 250ms dedupe lock setup
+      const WINDOW_MS = 250;
+      const nowMsServer = nowTs.toMillis();
+      const bucket = Math.floor(nowMsServer / WINDOW_MS);
+      const lockRef = db.doc(`users/${uid}/grantLocks/${bucket}`);
+
+      // Transactional dedupe: apply 250ms lock only if no grantId is present
+      if (!grantId) {
+      const lockSnap = await tx.get(lockRef);
+      if (lockSnap.exists) {
+        const curr = (cSnap.exists && typeof cSnap.get('tickets') === 'number') ? cSnap.get('tickets') : 0;
+        const multSkip = tix2x ? 2 : 1;
+        const roomRemain = MAX_TICKETS_PER_DAY == null ? null : Math.max(0, MAX_TICKETS_PER_DAY - curr);
+        return { applied: 0, multiplier: multSkip, capped: false, day: todayId, skipped: true, current: curr, room: roomRemain, effective: 0, base: amount, tix2x } as any;
+      }
+      tx.create(lockRef, { atMs: nowMsServer, day: todayId });
+    }
+      // Server doubles only if client explicitly says amount is BASE (not pre-doubled)
+      const clientIndicatesBase = (req.data?.effective === false) || (req.data?.alreadyEffective === false) || (req.data?.mode === 'base');
+      const multiplier = (tix2x && clientIndicatesBase) ? 2 : 1;
+      const effective = amount * multiplier;
+      const current = (cSnap.exists && typeof cSnap.get('tickets') === 'number') ? cSnap.get('tickets') : 0;
+      const roomRaw = MAX_TICKETS_PER_DAY == null ? Number.POSITIVE_INFINITY : Math.max(0, MAX_TICKETS_PER_DAY - current);
+      const applied = Math.max(0, Math.min(effective, roomRaw));
+      const capped = MAX_TICKETS_PER_DAY != null && applied < effective;
+  const diag = { current, room: MAX_TICKETS_PER_DAY == null ? null : Math.max(0, MAX_TICKETS_PER_DAY - current), effective, base: amount, tix2x };
 
       // WRITES AFTER ALL READS
-      if (grantId && gRef && gSnap && !gSnap.exists) {
-        tx.set(gRef, { amount, day: todayId, ts: admin.firestore.FieldValue.serverTimestamp() });
+      if (grantId && gRef) {
+        tx.set(gRef, {
+          status: 'done', amountRequested: amount, amountApplied: applied, multiplier, capped, day: todayId,
+          current,
+          room: MAX_TICKETS_PER_DAY == null ? null : Math.max(0, MAX_TICKETS_PER_DAY - current),
+          effective, base: amount, tix2x,
+          ts: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
       }
       if (cSnap.exists) {
-        tx.update(counterRef, { tickets: admin.firestore.FieldValue.increment(amount), day: todayId });
+        tx.update(counterRef, { tickets: admin.firestore.FieldValue.increment(applied), day: todayId });
       } else {
-        tx.set(counterRef, { tickets: amount, day: todayId });
+        tx.set(counterRef, { tickets: applied, day: todayId });
       }
 
       // shard write for aggregate scaling
       const shard = hashUidToShard(uid, SHARDS);
       const shardRef = db.doc(`metrics_daily_shards/${todayId}/shards/${shard}`);
-      tx.set(shardRef, { tickets: admin.firestore.FieldValue.increment(amount) }, { merge: true });
+      tx.set(shardRef, { tickets: admin.firestore.FieldValue.increment(applied) }, { merge: true });
+
+      // set dedupe marker for next burst
+      tx.set(rtRef, { atMs: nowMsServer, day: todayId, bucket }, { merge: true });
+
+      return { applied, multiplier, capped, day: todayId, ...diag };
     });
 
-    return { ok: true, added: amount, day: todayId };
+    const roomReturn = (res as any).room;
+    return {
+      ok: true,
+      added: res.applied,
+      multiplier: res.multiplier,
+      capped: res.capped,
+      day: res.day,
+      skipped: (res as any).skipped === true,
+      current: (res as any).current,
+      room: roomReturn == null || roomReturn === undefined ? null : roomReturn,
+      effective: (res as any).effective,
+      baseAmount: (res as any).base,
+      tix2x: (res as any).tix2x,
+    };
   } catch (err: any) {
     console.error('grantTickets error', err);
     if (err instanceof HttpsError) throw err;
     throw new HttpsError('internal', err?.message || 'unknown error');
   }
+});
+
+// Activate double-tickets effect for N minutes (default 10)
+export const activateDoubleTickets = onCall({ cors: true, region: 'us-central1' }, async (req) => {
+  const uid = req.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'login required');
+
+  const minutesRaw = Number(req.data?.minutes ?? 10);
+  const minutes = Math.max(1, Math.min(60, Math.floor(minutesRaw)));
+
+  const now = admin.firestore.Timestamp.now();
+  const until = admin.firestore.Timestamp.fromMillis(now.toMillis() + minutes * 60 * 1000);
+
+  const userRef = db.doc(`users/${uid}`);
+  await userRef.set({
+    effects: {
+      double_tickets: {
+        activatedAt: now,
+        until,
+        active: true // legacy compatibility, server ignores this
+      }
+    }
+  }, { merge: true });
+
+  return { ok: true, minutes, activatedAt: now.toMillis(), until: until.toMillis() };
 });
 
 // Tagesgesamt aggregieren (Trigger, v2)
@@ -284,6 +426,397 @@ export const onShardChangeAggregateDaily = onDocumentWritten({ document: 'metric
     const t = d.get('tickets');
     if (typeof t === 'number') total += t;
   });
-  const poolLevel = Math.floor(total / 100);
+  let poolLevel = Math.floor(total / 100);
+  try {
+    const { levels } = await getPrizePoolConfig();
+    if (levels.length > 0) {
+      const progressLevels = buildProgressLevels(levels);
+      const { current } = resolveProgressLevel(progressLevels, total);
+      if (current) {
+        poolLevel = current.index;
+      }
+    }
+  } catch (err) {
+    console.warn('[metrics_daily] pool level fallback', err);
+  }
   await db.doc(`metrics_daily/${day}`).set({ date: day, ticketsTodayTotal: total, poolLevel }, { merge: true });
+});
+
+// ---------------- Raffle (weighted draw by tickets) ----------------
+type BerlinDay = { year: number; month: number; day: number };
+
+const berlinPartsFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Berlin',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
+function berlinParts(d: Date = new Date()) {
+  const parts = berlinPartsFormatter.formatToParts(d);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  }
+  return {
+    year: Number(map.year || '0'),
+    month: Number(map.month || '0'),
+    day: Number(map.day || '0'),
+    hour: Number(map.hour || '0'),
+    minute: Number(map.minute || '0'),
+    second: Number(map.second || '0'),
+  };
+}
+
+function formatBerlinDay(day: BerlinDay): string {
+  return `${day.year}-${String(day.month).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`;
+}
+
+function shiftBerlinDay(day: BerlinDay, delta: number): BerlinDay {
+  const base = new Date(Date.UTC(day.year, day.month - 1, day.day));
+  base.setUTCDate(base.getUTCDate() + delta);
+  return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1, day: base.getUTCDate() };
+}
+
+function raffleCollectionDateId(d: Date = new Date()): string {
+  const parts = berlinParts(d);
+  const minutes = parts.hour * 60 + parts.minute + parts.second / 60;
+  const cutoffMinutes = 20 * 60; // 20:00 Berlin time
+  let target: BerlinDay = { year: parts.year, month: parts.month, day: parts.day };
+  if (minutes >= cutoffMinutes) {
+    target = shiftBerlinDay(target, 1);
+  }
+  return formatBerlinDay(target);
+}
+
+function raffleDrawDateId(d: Date = new Date()): string {
+  const parts = berlinParts(d);
+  const minutes = parts.hour * 60 + parts.minute + parts.second / 60;
+  const cutoffMinutes = 20 * 60;
+  let target: BerlinDay = { year: parts.year, month: parts.month, day: parts.day };
+  if (minutes < cutoffMinutes) {
+    target = shiftBerlinDay(target, -1);
+  }
+  return formatBerlinDay(target);
+}
+
+function detRand(uid: string, salt: string, seed: string): number {
+  const crypto = require('crypto') as typeof import('crypto');
+  const hex = crypto.createHmac('sha256', seed).update(`${uid}|${salt}`).digest('hex').slice(0, 13);
+  const int = parseInt(hex, 16);
+  return int / Math.pow(2, 52); // [0,1)
+}
+
+function weightedSampleWithoutReplacement(
+  entrants: Array<{ uid: string; w: number }>,
+  k: number,
+  seed: string,
+  salt: string
+): string[] {
+  const scored = entrants.map(e => {
+    const u = Math.max(Number.EPSILON, detRand(e.uid, salt, seed));
+    const key = Math.pow(u, 1 / Math.max(1, e.w));
+    return { uid: e.uid, key };
+  });
+  scored.sort((a, b) => b.key - a.key);
+  return scored.slice(0, k).map(s => s.uid);
+}
+
+type PrizePoolLevelConfig = {
+  key: string;
+  index: number;
+  ticketsNeeded: number;
+  items: Array<{ name: string; totalRewards: number }>;
+};
+
+type PrizePoolConfig = {
+  levels: PrizePoolLevelConfig[];
+};
+
+const PRIZE_POOL_CACHE_MS = 60 * 1000;
+let prizePoolCache: { ts: number; data: PrizePoolConfig } | null = null;
+
+type PrizePoolLevelProgress = PrizePoolLevelConfig & {
+  start: number;
+  end: number;
+  required: number;
+};
+
+async function fetchPrizePoolsMap(): Promise<any> {
+  let pools: any = {};
+  try {
+    const curSnap = await db.doc('config/currentMinigame').get();
+    if (curSnap.exists) {
+      const curPools = curSnap.get('prizePools');
+      if (curPools && typeof curPools === 'object') pools = curPools;
+    }
+  } catch (err) {
+    console.warn('[prizePools] currentMinigame fetch failed', err);
+  }
+  if (!pools || Object.keys(pools).length === 0) {
+    try {
+      const poolsSnap = await db.doc('config/prizePools').get();
+      if (poolsSnap.exists) pools = poolsSnap.data() || {};
+    } catch (err) {
+      console.warn('[prizePools] fallback fetch failed', err);
+    }
+  }
+  return pools || {};
+}
+
+function parsePrizePoolLevels(pools: any): PrizePoolLevelConfig[] {
+  const entries = Object.entries(pools || {})
+    .filter(([k, v]) => /^level-\d{2}$/i.test(k) && v && typeof v === 'object');
+
+  const parsed = entries.map(([levelKey, levelObj], idx): PrizePoolLevelConfig => {
+    const numericIndex = Number.parseInt(levelKey.slice(6), 10);
+    const levelIndex = Number.isFinite(numericIndex) ? numericIndex : idx;
+  const lvlAny: any = levelObj;
+  const rawTicketsNeeded = lvlAny?.['tickets-needed'];
+    const parsedTicketsNeeded = Number(rawTicketsNeeded);
+    const ticketsNeeded = Number.isFinite(parsedTicketsNeeded)
+      ? parsedTicketsNeeded
+      : levelIndex * 100;
+
+    const items: Array<{ name: string; totalRewards: number }> = [];
+    const pushItem = (it: any) => {
+      if (!it || typeof it !== 'object') return;
+      const name = String(it.name ?? it.prize ?? it.title ?? '').trim();
+      const qty = Number(it.totalRewards ?? it.count ?? it.qty ?? it.quantity ?? it.amount ?? it.total ?? 0);
+      if (name.length > 0 && Number.isFinite(qty) && qty > 0) {
+        items.push({ name, totalRewards: qty });
+      }
+    };
+
+    const itemEntries = Object.entries(lvlAny)
+      .filter(([k, v]) => /^item-\d{2}$/i.test(k) && v && typeof v === 'object')
+      .sort((a, b) => Number.parseInt(a[0].slice(5), 10) - Number.parseInt(b[0].slice(5), 10));
+    for (const [, it] of itemEntries) pushItem(it);
+    if (Array.isArray(lvlAny.items)) lvlAny.items.forEach(pushItem);
+    if (Array.isArray(lvlAny.prizes)) lvlAny.prizes.forEach(pushItem);
+
+    return {
+      key: levelKey,
+      index: levelIndex,
+      ticketsNeeded: Math.max(0, ticketsNeeded),
+      items,
+    };
+  });
+
+  parsed.sort((a, b) => {
+    if (a.ticketsNeeded === b.ticketsNeeded) return a.index - b.index;
+    return a.ticketsNeeded - b.ticketsNeeded;
+  });
+  return parsed;
+}
+
+async function getPrizePoolConfig(): Promise<PrizePoolConfig> {
+  const now = Date.now();
+  if (prizePoolCache && now - prizePoolCache.ts < PRIZE_POOL_CACHE_MS) {
+    return prizePoolCache.data;
+  }
+
+  const pools = await fetchPrizePoolsMap();
+  const levels = parsePrizePoolLevels(pools);
+  const data: PrizePoolConfig = { levels };
+  prizePoolCache = { ts: now, data };
+  return data;
+}
+
+function buildProgressLevels(levels: PrizePoolLevelConfig[]): PrizePoolLevelProgress[] {
+  const sorted = [...levels].sort((a, b) => a.index - b.index);
+  let cumulative = 0;
+  const out: PrizePoolLevelProgress[] = [];
+  for (const lvl of sorted) {
+    const incrementRaw = Number(lvl.ticketsNeeded);
+    const increment = Number.isFinite(incrementRaw) && incrementRaw > 0 ? Math.floor(incrementRaw) : 100;
+    const required = Math.max(1, increment);
+    const start = cumulative;
+    const end = start + required;
+    cumulative = end;
+    out.push({ ...lvl, start, end, required });
+  }
+  return out;
+}
+
+function resolveProgressLevel(levels: PrizePoolLevelProgress[], totalTickets: number): { current: PrizePoolLevelProgress; next: PrizePoolLevelProgress | null } {
+  if (levels.length === 0) {
+    throw new HttpsError('failed-precondition', 'prize pools not configured');
+  }
+  let current = levels[0];
+  let next: PrizePoolLevelProgress | null = levels.length > 1 ? levels[1] : null;
+  for (let i = 0; i < levels.length; i++) {
+    const entry = levels[i];
+    const nextEntry = levels[i + 1] ?? null;
+    if (totalTickets >= entry.end && nextEntry) {
+      current = nextEntry;
+      next = levels[i + 2] ?? null;
+      continue;
+    }
+    current = entry;
+    next = nextEntry;
+    return { current, next };
+  }
+  return { current: levels[levels.length - 1], next: null };
+}
+
+async function choosePrizePoolLevel(_dayId: string, totalTickets: number): Promise<{ levelKey: string; items: Array<{ name: string; totalRewards: number }>; desiredLevel: number }> {
+  const { levels } = await getPrizePoolConfig();
+  if (!levels || levels.length === 0) {
+    throw new HttpsError('failed-precondition', 'prizePools leer');
+  }
+
+  const progressLevels = buildProgressLevels(levels);
+  const { current } = resolveProgressLevel(progressLevels, totalTickets);
+
+  let chosen = current;
+  if (!chosen || chosen.items.length === 0) {
+    const descending = [...progressLevels].sort((a, b) => b.start - a.start);
+    for (const entry of descending) {
+      if (totalTickets >= entry.start && entry.items.length > 0) {
+        chosen = entry;
+        break;
+      }
+    }
+    if ((!chosen || chosen.items.length === 0)) {
+      const fallbackWithItems = progressLevels.find(entry => entry.items.length > 0);
+      if (fallbackWithItems) {
+        chosen = fallbackWithItems;
+      }
+    }
+  }
+
+  if (!chosen || chosen.items.length === 0) {
+    throw new HttpsError('failed-precondition', 'keine items in prize pool');
+  }
+
+  return { levelKey: chosen.key, items: chosen.items, desiredLevel: (current?.index ?? chosen.index) };
+}
+
+async function runRaffleForDate(dateIdInput?: string) {
+  const debug: string[] = [];
+  const step = (s: string) => { debug.push(s); console.log('[runRaffle]', s); };
+
+  try {
+    step('start');
+    const dateId = dateIdInput ? String(dateIdInput) : raffleDrawDateId();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateId)) {
+      throw new HttpsError('invalid-argument', 'bad dateId', { dateId });
+    }
+
+    step('query entrants');
+    const q = db.collectionGroup('countersByDay').where('day', '==', dateId);
+    const snap = await q.get();
+    step(`counters=${snap.size}`);
+
+    type Entrant = { uid: string; w: number; ref: FirebaseFirestore.DocumentReference };
+    const entrants: Entrant[] = [];
+    let totalEligibleTickets = 0;
+    let totalTicketsAll = 0;
+    let excludedTooLow = 0;
+
+    snap.forEach(d => {
+      const docDay = String(d.get('day') ?? d.id);
+      if (docDay !== dateId) return;
+
+      const w = Math.max(0, Number(d.get('tickets') || 0));
+      const uidRaw = d.ref.parent.parent?.id;
+      const uid = uidRaw ? String(uidRaw) : null;
+
+      if (uid && w > 0) {
+        totalTicketsAll += w;
+        if (w >= MIN_TICKETS_FOR_RAFFLE) {
+          entrants.push({ uid, w, ref: d.ref });
+          totalEligibleTickets += w;
+        } else {
+          excludedTooLow += 1;
+        }
+      }
+    });
+
+    if (entrants.length === 0) {
+      step('fallback scan countersByDay');
+      const scan = await db.collectionGroup('countersByDay').get();
+      scan.forEach(d => {
+        if (d.id !== dateId) return;
+        const w = Math.max(0, Number(d.get('tickets') || 0));
+        const uid = d.ref.parent.parent?.id;
+        if (uid && w > 0) {
+          totalTicketsAll += w;
+          if (w >= MIN_TICKETS_FOR_RAFFLE) {
+            entrants.push({ uid, w, ref: d.ref });
+            totalEligibleTickets += w;
+          } else {
+            excludedTooLow += 1;
+          }
+        }
+      });
+      step(`fallback entrants=${entrants.length}`);
+    }
+
+    step(`eligibleEntrants=${entrants.length} excludedBelowMinimum=${excludedTooLow}`);
+    if (entrants.length === 0) {
+      throw new HttpsError('failed-precondition', `keine Teilnehmer (mindestens ${MIN_TICKETS_FOR_RAFFLE} Tickets erforderlich)`, { debug, excludedTooLow, minTickets: MIN_TICKETS_FOR_RAFFLE });
+    }
+
+    step('choose prize pool');
+    const poolSel = await choosePrizePoolLevel(dateId, totalTicketsAll);
+    const { levelKey, items, desiredLevel } = poolSel;
+    step(`pool desired=${desiredLevel} chosen=${levelKey}`);
+
+    const slots: string[] = [];
+    for (const it of items) {
+      for (let i = 0; i < it.totalRewards; i++) slots.push(it.name);
+    }
+    if (slots.length === 0) throw new HttpsError('failed-precondition', 'keine Preisslots', { debug });
+
+    const k = Math.min(slots.length, entrants.length);
+    const seed = `${dateId}:${totalEligibleTickets}`;
+    const winnerUids = weightedSampleWithoutReplacement(entrants, k, seed, 'raffle');
+
+    step('resolve names');
+    const winnerRows: Record<string, { name: string; prize: string }> = {};
+    for (let i = 0; i < winnerUids.length; i++) {
+      const uid = winnerUids[i];
+      const userSnap = await db.doc(`users/${uid}`).get();
+      const name = (userSnap.exists && (userSnap.get('displayName') || userSnap.get('name'))) || uid;
+      winnerRows[String(i)] = { name: String(name), prize: slots[i] };
+    }
+
+    step('write winners');
+    const winnersRef = db.doc('config/winners');
+    await winnersRef.set({ [dateId]: winnerRows }, { merge: true });
+
+    step('no clear (tickets kept)');
+    step('done');
+
+    return { ok: true, dateId, levelKey, totalTickets: totalTicketsAll, eligibleTickets: totalEligibleTickets, desiredLevel, winners: winnerRows, debug };
+  } catch (e: any) {
+    console.error('[runRaffle] error', e);
+    if (e instanceof HttpsError) {
+      (e as any).details = { ...(e.details || {}), debug };
+      throw e;
+    }
+    throw new HttpsError('internal', e?.message || 'INTERNAL', { code: e?.code, stack: e?.stack, debug });
+  }
+}
+
+export const runRaffleNow = onCall({ cors: true, region: 'us-central1' }, async (req) => {
+  const override = req.data?.dateId ? String(req.data.dateId) : undefined;
+  return runRaffleForDate(override);
+});
+
+export const runRaffleDaily = onSchedule({ schedule: '0 20 * * *', timeZone: 'Europe/Berlin' }, async () => {
+  const today = raffleDrawDateId();
+  console.log('[runRaffleDaily] trigger', today);
+  try {
+    const res = await runRaffleForDate(today);
+    console.log('[runRaffleDaily] success', { dateId: res.dateId, winners: Object.keys(res.winners || {}).length });
+  } catch (e: any) {
+    console.error('[runRaffleDaily] failed', e);
+    throw e;
+  }
 });

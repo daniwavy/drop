@@ -20,8 +20,33 @@ function ensureFirebase() {
   return { app, auth: getAuth(app), fs: getFirestore(app) as ReturnType<typeof getFirestore> };
 }
 
+const RAFFLE_TICKET_MIN = 50;
+
 export default function TapRushPage() {
   const router = useRouter();
+  // Guard: only allow entering this minigame if the user came from the Drop screen.
+  React.useEffect(() => {
+    try {
+      const present = sessionStorage.getItem('drop.present');
+      const startedRaw = sessionStorage.getItem('drop.startedFromDrop');
+      const now = Date.now();
+      let allowed = false;
+      if (present) {
+        // Presence token set while Drop page is mounted
+        allowed = true;
+      } else if (startedRaw) {
+        // start token contains a timestamp; allow short-lived navigations (60s)
+        const ts = Number(startedRaw);
+        if (!Number.isNaN(ts) && now - ts <= 60000) allowed = true;
+      }
+      if (!allowed) {
+        try { router.replace('/drop'); } catch {}
+      }
+    } catch (e) {
+      // If sessionStorage isn't available, be conservative and redirect
+      try { router.replace('/drop'); } catch {}
+    }
+  }, [router]);
   const [submitting, setSubmitting] = React.useState(false);
   const [grantStatus, setGrantStatus] = React.useState<string | null>(null);
   const DURATION_MS = 30000;
@@ -39,7 +64,7 @@ export default function TapRushPage() {
   const [scoreBump, setScoreBump] = React.useState(false);
   const [timeLeft, setTimeLeft] = React.useState(DURATION_MS);
   const [target, setTarget] = React.useState<number>(0); // deterministic for SSR
-  const [countdown, setCountdown] = React.useState<number | null>(null);
+  const [countdown, setCountdown] = React.useState<number | null>(3);
   const [lastHit, setLastHit] = React.useState<{ i: number; ok: boolean; t: number } | null>(
     null
   );
@@ -73,6 +98,38 @@ export default function TapRushPage() {
   const [coins, setCoins] = React.useState<number>(0);
   const [streak, setStreak] = React.useState<number>(0);
   const [avatar, setAvatar] = React.useState<string | null>(null);
+  const ticketsMultRef = React.useRef<number>(1);
+  // Keep the full double_tickets object to verify activity at grant-time
+  const doubleTicketsRef = React.useRef<any>(null);
+  const isDoubleActiveNow = React.useCallback(() => {
+    try {
+      const dt = doubleTicketsRef.current;
+      if (!dt || dt.active !== true) return false;
+      const nowMs = Date.now();
+      return typeof dt.until === 'number' ? dt.until > nowMs : true;
+    } catch { return false; }
+  }, []);
+
+  // Helper to resolve if a double-ticket effect is currently active
+  const resolveDoubleActive = (dt: any): boolean => {
+    try {
+      if (!dt || dt.active !== true) return false;
+      const now = Date.now();
+      // Accept various field shapes: until (ms), untilMs, Firestore Timestamp, expiresAt
+      let untilMs: number | null = null;
+      if (typeof dt.until === 'number') untilMs = dt.until;
+      else if (typeof dt.untilMs === 'number') untilMs = dt.untilMs;
+      else if (dt.until && typeof dt.until.seconds === 'number') {
+        untilMs = dt.until.seconds * 1000 + (dt.until.nanoseconds ? Math.floor(dt.until.nanoseconds / 1e6) : 0);
+      } else if (dt.expiresAt && typeof dt.expiresAt.seconds === 'number') {
+        untilMs = dt.expiresAt.seconds * 1000 + (dt.expiresAt.nanoseconds ? Math.floor(dt.expiresAt.nanoseconds / 1e6) : 0);
+      }
+      return untilMs == null ? true : untilMs > now;
+    } catch { return false; }
+  };
+  // Seed topbar data from Drop page to save reads
+  const seededFromSnapshotRef = React.useRef(false);
+  const snapshotExpiryRef = React.useRef(0);
 
   // golden LOS cell (index in grid)
   const [losCell, setLosCell] = React.useState<number | null>(null);
@@ -95,16 +152,6 @@ export default function TapRushPage() {
   // pre-countdown intro animation (start true to avoid initial flash)
   const [intro, setIntro] = React.useState(true);
 
-  React.useEffect(() => {
-    // play intro wave, then start countdown
-    setIntro(true);
-    const to = setTimeout(() => {
-      setIntro(false);
-      setCountdown(3);
-    }, 900);
-    return () => clearTimeout(to);
-  }, []);
-
   // auth → uid
   React.useEffect(() => {
     const { auth } = ensureFirebase();
@@ -115,19 +162,66 @@ export default function TapRushPage() {
     return () => unsub();
   }, []);
 
-  // uid → user snapshot
+  // Prime from session snapshot written on Drop page
   React.useEffect(() => {
-    if (!uid) return;
-    const { fs } = ensureFirebase();
-    const ref = doc(fs as any, 'users', uid);
-    const unsub = onSnapshot(ref, (snap) => {
-      const d: any = snap.data() || {};
-      setCoins(typeof d.coins === 'number' ? d.coins : 0);
-      setStreak(typeof d.streak === 'number' ? d.streak : 0);
-      setAvatar(typeof d.photoURL === 'string' && d.photoURL ? d.photoURL : null);
-    });
-    return () => unsub();
-  }, [uid]);
+    try {
+      const raw = sessionStorage.getItem('topbarSnapshot');
+      if (!raw) return;
+      const snap = JSON.parse(raw || 'null') || {};
+      const now = Date.now();
+      const snapTs = typeof snap.now === 'number' ? snap.now : now;
+      const TTL = 120000; // 2 minutes
+      const fresh = now - snapTs <= TTL;
+      if (typeof snap.coins === 'number') setCoins(snap.coins);
+      if (typeof snap.streak === 'number') setStreak(snap.streak);
+      if (typeof snap.avatar === 'string') setAvatar(snap.avatar);
+      // seed double tickets from snapshot.effects or root
+      try {
+        const eff: any = (snap as any).effects || {};
+        const dt: any = eff.double_tickets || (snap as any).double_tickets || null;
+        doubleTicketsRef.current = dt;
+        const nowMs = Date.now();
+        const active = !!(dt && dt.active === true && (typeof dt.until === 'number' ? dt.until > nowMs : true));
+        ticketsMultRef.current = active ? 2 : 1;
+      } catch { ticketsMultRef.current = 1; doubleTicketsRef.current = null; }
+      seededFromSnapshotRef.current = true;
+      snapshotExpiryRef.current = snapTs + TTL;
+    } catch {}
+  }, []);
+
+  // uid → user snapshot (gated by snapshot seed TTL)
+    React.useEffect(() => {
+      if (!uid) return;
+      let unsub: (() => void) | null = null;
+      let to: any = null;
+      const subscribe = () => {
+        const { fs } = ensureFirebase();
+        const ref = doc(fs as any, 'users', uid);
+        unsub = onSnapshot(ref, (snap) => {
+          const d: any = snap.data() || {};
+          setCoins(typeof d.coins === 'number' ? d.coins : 0);
+          setStreak(typeof d.streak === 'number' ? d.streak : 0);
+          setAvatar(typeof d.photoURL === 'string' && d.photoURL ? d.photoURL : null);
+          // update double tickets from user doc
+          try {
+            const dtRoot: any = (d as any).double_tickets || null;
+            const dtEff: any = (d as any).effects?.double_tickets || dtRoot || null;
+            doubleTicketsRef.current = dtEff;
+            ticketsMultRef.current = resolveDoubleActive(dtEff) ? 2 : 1;
+          } catch { ticketsMultRef.current = 1; doubleTicketsRef.current = null; }
+        });
+      };
+      const now = Date.now();
+      const delay = seededFromSnapshotRef.current && snapshotExpiryRef.current > now
+        ? Math.max(0, snapshotExpiryRef.current - now)
+        : 0;
+      if (delay > 0) {
+        to = setTimeout(subscribe, delay);
+      } else {
+        subscribe();
+      }
+      return () => { if (to) clearTimeout(to); if (unsub) unsub(); };
+    }, [uid]);
 
   const tickRef = React.useRef<number | null>(null);
 
@@ -148,14 +242,12 @@ export default function TapRushPage() {
     setTickets(0);
     setResultPct(0);
     setFinished(false);
+    resultPushedRef.current = false;
     if (resultRafRef.current) cancelAnimationFrame(resultRafRef.current);
     setShouldSpawnLos(Math.random() < 0.2); // 20% per game
     setLosSpawned(false);
-    setIntro(true);
-    setTimeout(() => {
-      setIntro(false);
-      setCountdown(3);
-    }, 900);
+    setIntro(false);
+    setCountdown(3);
   };
   // Animate display score when `score` changes
   React.useEffect(() => {
@@ -202,10 +294,12 @@ export default function TapRushPage() {
     return () => { if (resultRafRef.current) cancelAnimationFrame(resultRafRef.current); };
   }, [finished, score]);
 
+
   React.useEffect(() => {
     if (countdown == null) return;
     if (countdown <= 0) {
       setCountdown(null);
+      setIntro(false); // enable interactions
       setRunning(true);
       return;
     }
@@ -356,10 +450,12 @@ export default function TapRushPage() {
     setRunning(false);
     setCountdown(null);
     setFinished(false);
+    resultPushedRef.current = false;
   };
 
   const seconds = Math.ceil(timeLeft / 1000);
   const lowTime = running && !finished && seconds <= 5;
+
 // Bonus tickets from score milestones (500–1000 in 3 steps of 250)
 const BONUS_START = 500;
 const BONUS_STEP = 250; // 500 → +1, 750 → +2, 1000 → +3
@@ -374,14 +470,27 @@ const diamondsFromScore = score >= BONUS_START
   ? Math.min(3, Math.max(1, Math.floor((score - BONUS_START) / BONUS_STEP) + 1))
   : 0;
 
+  // Navigate to /result via grantTickets once when finished
+  const resultPushedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!finished) return;
+    if (resultPushedRef.current) return;
+    resultPushedRef.current = true;
+    grantTickets('drop');
+  }, [finished]);
+
   const grantTickets = async (mode: 'drop' | 'replay') => {
     if (submitting) return;
-    const amount = Math.max(0, totalTickets);
+    const amountBase = Math.max(0, totalTickets);
     const diamonds = Math.max(0, diamondsFromScore);
-    if (amount <= 0 && diamonds <= 0) {
-      if (mode === 'drop') router.push('/drop');
-      if (mode === 'replay') startWithCountdown();
-      return;
+    let localMult = 1; // will be resolved against fresh user doc
+    let navTickets = amountBase;
+    let navDiamonds = diamonds;
+    let navMult = 1;
+    let lastGrant: any = null;
+    if (amountBase <= 0 && diamonds <= 0) {
+      // Zeige trotzdem den Result-Screen mit 0-Werten
+      // Keine frühzeitige Navigation mehr
     }
     setSubmitting(true);
     setGrantStatus(null);
@@ -420,68 +529,136 @@ const diamondsFromScore = score >= BONUS_START
       }
       try { await getIdToken(user, true); } catch {}
       const uid = user.uid;
+      // Fresh read of user doc to verify double tickets state at grant time
+      try {
+        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
+        const fs = getFirestore(app);
+        const uref = doc(fs as any, 'users', uid);
+        const usnap = await getDoc(uref);
+        const d: any = usnap.data() || {};
+        const dtRoot: any = d.double_tickets || null;
+        const dtEff: any = d.effects?.double_tickets || dtRoot || null;
+        doubleTicketsRef.current = dtEff;
+        localMult = resolveDoubleActive(dtEff) ? 2 : 1;
+        ticketsMultRef.current = localMult;
+        navMult = localMult;
+      } catch (e) {
+        // leave multiplier at 1 if anything fails
+        localMult = 1;
+        navMult = 1;
+      }
       const grant = httpsCallable(functions, 'grantTickets');
+      // base amount from this run
+      const grantAmountBase = Math.max(0, Math.floor(amountBase));
+      // effective amount after multiplier resolved from fresh user doc
+      const grantAmountEff = grantAmountBase * localMult;
       const payload = {
-        amount,
+        amount: grantAmountEff,            // effective amount to add
+        baseAmount: grantAmountBase,       // for server-side auditing
+        multiplierRequested: localMult,    // 1 or 2
         source: 'tap-rush',
         uid,
         score,
         comboMax: bestCombo,
         bonusFromScore,
         ticketsFromCells: tickets,
+        doubleProof: {
+          active: localMult === 2,
+          until: (doubleTicketsRef.current && (doubleTicketsRef.current.until || doubleTicketsRef.current.untilMs)) || null,
+        },
         ts: Date.now(),
-      };
+      } as any;
       const res = await grant(payload);
-      const ok = res && (res as any).data && (((res as any).data.ok === true) || ((res as any).data.success === true));
+      const data = (res as any)?.data || {};
+      lastGrant = data;
+      const tAdded = typeof data.added === 'number' ? data.added : grantAmountEff;
+      const srvMultRaw = (data as any)?.multiplier;
+      const srvMult = srvMultRaw === 2 ? 2 : srvMultRaw === 1 ? 1 : localMult;
+      navTickets = tAdded;
+      navMult = srvMult;
+      const ok = res && (res as any).data && ((((res as any).data.ok === true) || ((res as any).data.success === true)));
       if (ok) {
-        setGrantStatus(`Tickets: ${amount}${diamonds > 0 ? ` • Diamanten: ${diamonds}` : ''}`);
+        setGrantStatus(`Tickets: ${tAdded}${diamonds > 0 ? ` • Diamanten: ${diamonds}` : ''}${srvMult > 1 ? ' (x' + srvMult + ')' : ''}`);
       } else {
-        setGrantStatus(`Unklare Antwort vom Server. Angefordert: ${amount}`);
+        setGrantStatus(`Unklare Antwort vom Server. Angefordert: ${grantAmountEff}${localMult > 1 ? ' (x' + localMult + ')' : ''}`);
         console.warn('grantTickets response', (res as any)?.data);
       }
-      // Grant diamonds (coins) 1–3 at end
+      // Grant diamonds 1–3 at end
       if (diamonds > 0) {
         try {
-          // Add idempotency opId to grantCoins and grantDiamonds
           const opId = `tap-rush-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          const grantCoins = httpsCallable(functions, 'grantCoins');
-          await grantCoins({ amount: diamonds, source: 'tap-rush', uid, score, ts: Date.now(), opId });
-        } catch (e1) {
-          try {
-            // Fallback function name
-            const grantDiamonds = httpsCallable(functions, 'grantDiamonds');
-            await grantDiamonds({ amount: diamonds, source: 'tap-rush', uid, score, ts: Date.now(), opId });
-          } catch (e2) {
-            console.warn('grant diamonds failed', e1, e2);
-          }
+          const grantDiamonds = httpsCallable(functions, 'grantDiamonds');
+          await grantDiamonds({ amount: diamonds, source: 'tap-rush', uid, score, ts: Date.now(), opId });
+          navDiamonds = diamonds;
+        } catch (e) {
+          console.warn('grantDiamonds failed', e);
         }
       }
     } catch (e) {
       console.error('grantTickets error', e);
       setGrantStatus('Fehler beim Gutschreiben der Tickets');
     } finally {
-      const next = () => {
-        if (mode === 'drop') router.push('/drop');
-        if (mode === 'replay') startWithCountdown();
-      };
-      setTimeout(next, 300);
       setSubmitting(false);
+      (() => {
+        const srv = lastGrant || {};
+        const effMult = Number(srv.multiplier ?? srv.mult ?? navMult ?? 1);
+        const tix2x = srv.tix2x === true || effMult >= 2;
+        const capped = srv.capped === true;
+        const room = Number.isFinite(srv.room) ? Number(srv.room) : undefined;
+        const current = Number.isFinite(srv.current) ? Number(srv.current) : undefined;
+        const ticketsEff = Number.isFinite(srv.added) ? Number(srv.added) : navTickets;
+        const ticketsBefore = current;
+        const ticketsTotal = Number.isFinite(srv.ticketsTotal)
+          ? Number(srv.ticketsTotal)
+          : ticketsBefore !== undefined
+            ? ticketsBefore + ticketsEff
+            : undefined;
+
+        sessionStorage.setItem(
+          'resultPayload',
+          JSON.stringify({
+            game: 'tap-rush',
+            score,
+            tickets: ticketsEff,
+            diamonds: navDiamonds,
+            // authoritative flags from server
+            multiplier: effMult,
+            mult: effMult,
+            tix2x,
+            double: tix2x,
+            x2: tix2x,
+            // cap diagnostics for UI
+            capped,
+            room,
+            current,
+            ticketsBefore,
+            ticketsTotal,
+            ticketsMin: RAFFLE_TICKET_MIN,
+            // Top bar snapshot values
+            coins,
+            streak,
+          })
+        );
+      })();
+      router.push('/result');
     }
   };
 
   return (
     <div className="min-h-screen w-screen bg-white flex items-center justify-center p-6 pt-16 overflow-hidden">
       {/* Fixed Top Bar (like drop page) */}
-      <div className="fixed top-0 left-0 right-0 z-40 bg-black">
+      <div className="fixed top-0 left-0 right-0 z-60 bg-black">
         <img src="/logo.png" alt="drop" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-auto select-none" />
         <div className="mx-auto max-w-6xl h-16 flex items-center justify-between px-0 relative">
           {/* center: coins and streak */}
           <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
             <div className="px-4 py-1.5 rounded-full bg-white text-black text-base font-semibold border border-black/10 shadow">
-              💎 <span className="tabular-nums ml-1">{coins ?? 0}</span>
+              <img src="/icons/coin.svg" alt="Coins" className="inline-block h-[18px] w-[18px] align-[-0.15em]" />
+              <span className="tabular-nums ml-1">{coins ?? 0}</span>
             </div>
             <div className="px-4 py-1.5 rounded-full bg-white text-black text-base font-semibold border border-black/10 shadow">
-              🔥 <span className="tabular-nums ml-1">{streak ?? 0}</span>
+              <img src="/icons/flame.png" alt="Streak" className="inline-block h-[18px] w-[18px] align-[-0.15em]" />
+              <span className="tabular-nums ml-1">{streak ?? 0}</span>
             </div>
           </div>
           {/* right spacer to balance */}
@@ -489,15 +666,16 @@ const diamondsFromScore = score >= BONUS_START
         </div>
       </div>
       <div className="relative z-10 w-full max-w-xl">
-        {/* Card */}
-        <div className="relative rounded-3xl bg-white shadow-[0_20px_80px_rgba(0,0,0,0.15)] p-5 sm:p-6 flex flex-col overflow-hidden">
-          {/* Vignette feedback overlay */}
-          {flash && (
-            <div className="fixed inset-0 z-40 pointer-events-none">
-              <div className={`absolute inset-0 vignette ${flash === 'hit' ? 'vignette-hit' : 'vignette-miss'}`} />
-            </div>
-          )}
-          {!finished ? (
+        {/* Only render the card while not finished */}
+        {!finished && (
+          <div className="relative rounded-3xl bg-white shadow-[0_20px_80px_rgba(0,0,0,0.15)] p-5 sm:p-6 flex flex-col overflow-hidden">
+            {/* Vignette feedback overlay */}
+            {flash && (
+              <div className="fixed inset-0 z-40 pointer-events-none">
+                <div className={`absolute inset-0 vignette ${flash === 'hit' ? 'vignette-hit' : 'vignette-miss'}`} />
+              </div>
+            )}
+            {/* Game content (only shown while not finished) */}
             <>
               {/* HUD */}
               <div className="flex items-center justify-between gap-2">
@@ -516,9 +694,6 @@ const diamondsFromScore = score >= BONUS_START
                   </div>
                 </div>
               </div>
-
-
-
 
               {/* Grid (scrolls inside card) */}
               <div className={`mt-5 flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-2 pt-1 ${intro ? 'pointer-events-none' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -568,102 +743,29 @@ const diamondsFromScore = score >= BONUS_START
               {/* Controls removed: no pause allowed */}
               <div className="mt-5" />
             </>
-          ) : (
-            /* Result screen only */
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center w-full max-w-md mx-auto px-4">
-                <div className="text-3xl font-bold text-black">Zeit abgelaufen</div>
-                <div className="mt-3 text-lg text-black/80">
-                  Score: <span className="tabular-nums font-semibold text-black">{score}</span>
-                </div>
-                <div className="mt-4">
-                  <div className="relative w-full">
-                    {/* Bar (clipped) */}
-                    <div className="h-4 w-full bg-black/10 rounded-full overflow-hidden border border-black/10">
-                      <div
-                        className={`result-fill ${finished ? 'result-anim' : ''}`}
-                        style={{ ['--sx' as any]: String(resultRatio) }}
-                      />
-                      {/* Tick lines */}
-                      <div className="pointer-events-none absolute inset-0 flex justify-between">
-                        <div className="w-px bg-black/20" />
-                        <div className="w-px bg-black/20" />
-                        <div className="w-px bg-black/20" />
-                      </div>
-                    </div>
-
-
-                    {/* Current score marker */}
-                    <div
-                      className="absolute -top-2 h-8 w-0.5 bg-black/50"
-                      style={{ left: `calc(${Math.min(100, Math.max(0, resultRatio * 100))}% )` }}
-                    />
-                  </div>
-
-                  <div className="mt-3 flex items-stretch justify-center gap-3">
-                    {/* Tickets card */}
-                    <div className="min-w-[92px] rounded-2xl border border-black/10 bg-white px-4 py-2 shadow-sm">
-                      <div className="text-[10px] leading-none tracking-wider text-black/50 font-semibold text-center">TICKETS</div>
-                      <div className="mt-1 text-lg font-extrabold text-black flex items-center justify-center gap-1">
-                        <span className="select-none">+{totalTickets}</span>
-                        <span className="select-none">🎟</span>
-                      </div>
-                    </div>
-                    {/* Diamonds card */}
-                    <div className="min-w-[92px] rounded-2xl border border-black/10 bg-white px-4 py-2 shadow-sm">
-                      <div className="text-[10px] leading-none tracking-wider text-black/50 font-semibold text-center">DIAMANTEN</div>
-                      <div className="mt-1 text-lg font-extrabold text-black flex items-center justify-center gap-1">
-                        <span className="select-none">+{diamondsFromScore}</span>
-                        <span className="select-none">💎</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-6 flex items-center justify-center gap-3">
-                  <button
-                    onClick={() => grantTickets('replay')}
-                    disabled={submitting}
-                    className="px-6 py-3 rounded-full bg-black text-white font-semibold text-lg shadow hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {submitting && (
-                      <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    )}
-                    Erneut spielen
-                  </button>
-                  <button
-                    onClick={() => grantTickets('drop')}
-                    disabled={submitting}
-                    className="px-6 py-3 rounded-full bg-black text-white font-semibold text-lg shadow hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {submitting && (
-                      <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    )}
-                    Weiter
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Countdown Overlay */}
-          {countdown != null && countdown > 0 && (
-            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
-              <div
-                key={countdown}
-                className={`font-extrabold tracking-tighter text-white animate-countdown-${countdown}`}
-                style={{
-                  fontSize: '31.5vmin',
-                  lineHeight: 0.8,
-                  WebkitTextStroke: '8px black',
-                  willChange: 'transform',
-                }}
-              >
-                {countdown}
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
+      {/* Global Countdown Overlay (fullscreen, outside card) */}
+      {countdown != null && countdown > 0 && (
+        <div className="fixed inset-0 z-30 bg-white flex items-center justify-center">
+          <div
+            key={countdown}
+            className="font-extrabold tracking-tight text-black"
+            style={{ fontSize: '72px', lineHeight: 1 }}
+          >
+            {countdown}
+          </div>
+        </div>
+      )}
+      {finished && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center">
+          <div
+            className="h-12 w-12 rounded-full border-4 border-black/20 border-t-black animate-spin"
+            aria-label="Lädt"
+          />
+        </div>
+      )}
       <style jsx global>{`
         @keyframes popIn {
           0% { transform: scale(0); opacity: 0; }

@@ -3,6 +3,7 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --topbar-height: 64px; /* adjustable topbar height used to offset full-screen content */
 }
 
 @theme inline {
@@ -24,3 +25,300 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* NOTE: Removed global smooth-scroll and global scrollbar hiding because
+   they can interfere with scroll-snap and 3D transforms. Use the helper
+   classes below on specific containers instead. */
+
+/* Helper: hide scrollbar on specific elements only */
+.hide-scrollbar::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
+.hide-scrollbar {
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+}
+
+/* Helper to force a thin visible scrollbar for specific containers (opt-in) */
+.visible-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,0.35) transparent;
+}
+.visible-scrollbar::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.visible-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.35);
+  border-radius: 6px;
+}
+.visible-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Explicit scroll-snap helpers to use where needed */
+.scroll-snap-container {
+  scroll-snap-type: y mandatory !important;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  height: 100vh;
+  overflow-y: scroll;
+  scroll-padding-top: 5rem;
+}
+.scroll-snap-section {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  height: 100vh;
+  flex-shrink: 0;
+}
+
+/* Smooth CSS-driven small ticker (GPU-accelerated) */
+@keyframes smallTickerScroll {
+  0% { transform: translate3d(var(--startX, 100vw), -50%, 0); }
+  100% { transform: translate3d(var(--endX, -100%), -50%, 0); }
+}
+.small-ticker-wrap { position: relative; overflow: hidden; }
+.small-ticker-track { position: relative; height: 100%; }
+.small-ticker-text {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  white-space: nowrap;
+  transform: translate3d(var(--startX, 100vw), -50%, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+  contain: layout style paint;
+}
+.small-ticker-text.css-anim {
+  animation-name: smallTickerScroll;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+/* Enable document-level scroll-snap without padding */
+html {
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Prevent scrolling past the first/last document snap points (reduce overscroll/rubber-band) */
+html, body {
+  height: 100%;
+  overscroll-behavior-y: none; /* stop the page from being pulled beyond its bounds */
+}
+
+/* -------------------------------------------------------------------------
+   Globale Ausblendung der Scrollbars
+   - Versteckt die visuellen Scrollbars in WebKit/Blink, Firefox und IE/Edge
+   - Wichtig: wir verändern nicht `overflow` — Scrollen bleibt aktiv
+   ------------------------------------------------------------------------- */
+/* Firefox */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Internet Explorer 10+ */
+}
+
+/* WebKit (Chrome, Safari, Edge) */
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  background: transparent;
+}
+
+/* Topbar smooth hide/show */
+.topbar-wrapper {
+  transition: transform 360ms cubic-bezier(.2,.9,.3,1), opacity 280ms ease-in-out;
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+.topbar-wrapper.top-hidden {
+  transform: translateY(calc(-100% - 8px)) translateZ(0);
+  opacity: 0;
+  pointer-events: none;
+}
+.topbar-wrapper.top-visible {
+  transform: translateY(0) translateZ(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Helper to offset a full-screen section below the topbar */
+.below-topbar {
+  padding-top: var(--topbar-height);
+  box-sizing: border-box;
+  height: 100vh;
+}
+
+/* Thin black divider between consecutive full-screen sections — only when enabled via the test terminal */
+html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-section {
+  border-top: 1px solid #000;
+}
+
+/* Utility if manual divider needed */
+.section-divider {
+  border-top: 1px solid #000;
+}
+
+/* (removed) Footer background logo helper - no longer used */
+
+/* scanlines overlay (subtle) */
+.scanlines {
+  pointer-events: none;
+  background-image: repeating-linear-gradient(to bottom, rgba(255,255,255,0.6) 0 1px, transparent 1px 3px);
+  background-size: 100% 3px;
+  opacity: 0.06;
+  animation: scanDrift 12s linear infinite;
+}
+
+@keyframes scanDrift { 0% { background-position: 0 0 } 100% { background-position: 0 12px } }
+
+/* animated background shift for radial gradient blobs */
+@keyframes gradientShift {
+  0% { background-position: 0% 0%, 100% 0%, 50% 100%, 10% 85%, 90% 80%, 50% 40%, 5% 50%, 0% 50%, 100% 50%; }
+  100% { background-position: 10% 10%, 90% 0%, 50% 90%, 20% 80%, 80% 80%, 60% 40%, 15% 50%, 0% 60%, 100% 40%; }
+}
+
+/* Drop logo animations - 6 smooth variants, each runs for 2s with 8s pause */
+.drop-logo {
+  animation-duration: 16s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+  will-change: transform, filter;
+  contain: layout style;
+}
+
+.drop-anim-0 {
+  animation-name: dropColorShift;
+}
+
+.drop-anim-1 {
+  animation-name: dropPulse;
+}
+
+.drop-anim-2 {
+  animation-name: dropRotateGlow;
+}
+
+.drop-anim-3 {
+  animation-name: dropBounce;
+}
+
+.drop-anim-4 {
+  animation-name: dropWiggle;
+}
+
+.drop-anim-5 {
+  animation-name: dropGlow;
+}
+
+@keyframes dropPulse {
+  0%, 12.5%, 87.5%, 100% { transform: scale(1); filter: brightness(1); }
+  3.75% { transform: scale(1.15); filter: brightness(1.3); }
+  8.75% { transform: scale(1); filter: brightness(1); }
+}
+
+@keyframes dropRotateGlow {
+  0%, 12.5%, 87.5%, 100% { transform: rotate(0deg); filter: hue-rotate(0deg) brightness(1); }
+  2.5% { transform: rotate(8deg); filter: hue-rotate(45deg) brightness(1.4); }
+  5% { transform: rotate(-8deg); filter: hue-rotate(90deg) brightness(1.2); }
+  8.75% { transform: rotate(0deg); filter: hue-rotate(0deg) brightness(1); }
+}
+
+@keyframes dropColorShift {
+  0%, 12.5%, 87.5%, 100% { filter: hue-rotate(0deg) saturate(1); }
+  1.875% { filter: hue-rotate(120deg) saturate(2); }
+  3.75% { filter: hue-rotate(240deg) saturate(1.8); }
+  5.625% { filter: hue-rotate(360deg) saturate(1.5); }
+  8.75% { filter: hue-rotate(0deg) saturate(1); }
+}
+
+@keyframes dropBounce {
+  0%, 12.5%, 87.5%, 100% { transform: translateY(0) scale(1); }
+  1.25% { transform: translateY(-4px) scale(1.1); }
+  2.5% { transform: translateY(1px) scale(0.95); }
+  3.75% { transform: translateY(-2px) scale(1.05); }
+  6.25% { transform: translateY(0) scale(1); }
+}
+
+@keyframes dropWiggle {
+  0%, 12.5%, 87.5%, 100% { transform: rotate(0deg) scale(1); }
+  1.25% { transform: rotate(5deg) scale(1.05); }
+  2.5% { transform: rotate(-5deg) scale(0.95); }
+  3.75% { transform: rotate(3deg) scale(1.02); }
+  5% { transform: rotate(-2deg) scale(0.98); }
+  7.5% { transform: rotate(0deg) scale(1); }
+}
+
+@keyframes dropGlow {
+  0%, 12.5%, 87.5%, 100% { filter: brightness(1) contrast(1) drop-shadow(0 0 0 transparent); }
+  3.75% { filter: brightness(1.85) contrast(1.5) drop-shadow(0 0 28px rgba(255,215,0,1)) drop-shadow(0 0 8px rgba(255,215,0,0.85)); }
+  7.5% { filter: brightness(1.3) contrast(1.15) drop-shadow(0 0 10px rgba(255,215,0,0.65)); }
+}
+
+/* Loader overlay styles */
+.drop-loader-logo {
+  width: clamp(160px, 18vw, 360px);
+  height: auto;
+  z-index: 10000;
+  pointer-events: none;
+  user-select: none;
+  object-fit: contain;
+}
+
+/* subtle pulsing glow for the centered loader logo */
+@keyframes loaderPulseGlow {
+  0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255,0,0,0)); }
+  50% { transform: scale(1.025); filter: drop-shadow(0 0 36px rgba(255,40,40,1)) drop-shadow(0 0 12px rgba(255,60,60,0.95)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255,0,0,0)); }
+}
+
+.drop-loader-logo {
+  animation: loaderPulseGlow 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop-loader-logo { animation: none !important; }
+}
+
+/* Vault title subtle float + shimmer effect */
+@keyframes vaultFloat {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes vaultShimmer {
+  0% { filter: drop-shadow(0 0 0 rgba(255,215,0,0)); }
+  50% { filter: drop-shadow(0 0 24px rgba(255,215,0,0.95)) drop-shadow(0 0 8px rgba(255,215,0,0.6)); }
+  100% { filter: drop-shadow(0 0 0 rgba(255,215,0,0)); }
+}
+
+.vault-title {
+  animation: vaultFloat 4s ease-in-out infinite, vaultShimmer 4s ease-in-out infinite;
+  will-change: transform, filter;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vault-title { animation: none !important; }
+}
+
+.loader-bottom-spinner {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10001;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scanlines { animation: none !important; }
+  .drop-logo { animation: none !important; }
+  * { animation-duration: 0s !important; }
+}
+

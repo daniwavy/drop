@@ -1,14 +1,6 @@
 "use client";
 import React from "react"; // React import hinzugefügt
-// Small global declaration for the dev setter used by the Test Terminal
-declare global {
-  interface Window {
-    __drop_setGridCount?: (n: number) => void;
-  }
-
-}
-import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
-import CardFrame from '../../components/CardFrame';
+import { useEffect, useState, useRef, useMemo } from "react";
 import { ref, getDownloadURL } from "firebase/storage";
 import { storage } from "../../lib/firebase";
 // --- Cached getDownloadURL with memory + localStorage TTL ---
@@ -151,7 +143,7 @@ function winnersDisplayDateIdFromMs(ms: number): string {
   
   return resultDate;
 }
-import { getFirestore, doc, onSnapshot, getDoc, getDocFromServer, runTransaction, serverTimestamp, collectionGroup, query as fsQuery, where, getDocs, documentId, writeBatch, collection, setDoc } from "firebase/firestore";
+import { getFirestore, doc, onSnapshot, getDoc, getDocFromServer, runTransaction, serverTimestamp, collectionGroup, query as fsQuery, where, getDocs, documentId, writeBatch } from "firebase/firestore";
 // --- Raffle Test Terminal (client-only, read-only) ---
 function RaffleTestTerminal({
   onClose,
@@ -174,27 +166,6 @@ function RaffleTestTerminal({
   const [raffleBusy, setRaffleBusy] = useState(false);
   const [grantBusy, setGrantBusy] = useState(false);
   const [grantInfo, setGrantInfo] = useState<string | null>(null);
-
-  // Toggle to show/hide section dividers (controlled from the test terminal)
-  const [rtShowDividers, setRtShowDividers] = useState<boolean>(() => {
-    try {
-      return document?.documentElement?.getAttribute('data-show-section-dividers') === 'true';
-    } catch (e) {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      if (rtShowDividers) {
-        document.documentElement.setAttribute('data-show-section-dividers', 'true');
-      } else {
-        document.documentElement.removeAttribute('data-show-section-dividers');
-      }
-    } catch (e) {
-      // noop
-    }
-  }, [rtShowDividers]);
 
   // tiny deterministic RNG based on string seed
   function xmur3(str: string) { let h = 1779033703 ^ str.length; for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); } return function () { h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return (h ^ (h >>> 16)) >>> 0; }; }
@@ -261,6 +232,9 @@ function RaffleTestTerminal({
     setSeedInfo(null);
     try {
       const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'runRaffleNow');
+      const res: any = await fn({ dateId });
+      console.log('[runRaffleNow] raw response', res);
+      const data = res?.data || {};
       console.log('[runRaffleNow] data', data);
       const dbg = (() => { try { return JSON.stringify(data, null, 2); } catch { return String(data); } })();
       if (data.ok) {
@@ -272,11 +246,11 @@ function RaffleTestTerminal({
         setRaffleInfo(null);
         setSeedInfo({ code: data.code || 'error', message: data.message || 'Cloud-Raffle fehlgeschlagen', debug: dbg });
       }
-  } catch (e) {
-    setRaffleInfo(null);
-    const edbg = (() => { try { return JSON.stringify({ code: (e as any)?.code, message: (e as any)?.message, details: (e as any)?.details }, null, 2); } catch { return String(e); } })();
-    console.error('[runRaffleNow] failed', e);
-    setSeedInfo({ code: (e as any)?.code || 'internal', message: (e as any)?.message || String(e), debug: edbg });
+    } catch (e: any) {
+      setRaffleInfo(null);
+      const edbg = (() => { try { return JSON.stringify({ code: e?.code, message: e?.message, details: e?.details }, null, 2); } catch { return String(e); } })();
+      console.error('[runRaffleNow] failed', e);
+      setSeedInfo({ code: e?.code || 'internal', message: e?.message || String(e), debug: edbg });
     } finally {
       setRaffleBusy(false);
     }
@@ -295,7 +269,7 @@ function RaffleTestTerminal({
       const added = data.added ?? data.applied ?? data.ok ? 3 : 0;
       setGrantInfo(`grantTickets OK • +${added} Tickets (${data.day || 'n/a'})`);
       await loadEntrants();
-  } catch (e) {
+    } catch (e: any) {
       console.error('[grantTickets] test failed', e);
       const msg = e?.message || e?.code || String(e);
       setGrantInfo(`grantTickets Fehler: ${msg}`);
@@ -432,26 +406,16 @@ function RaffleTestTerminal({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/80" onClick={onClose} />
-      {/* Shrink modal by ~10%: reduce max width/height and add visible scrollbar */}
-      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(86vw,810px)] max-h-[81vh] p-4 overflow-auto visible-scrollbar">
-        {/* close button intentionally removed - use overlay click or programmatic close */}
+      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(96vw,900px)] max-h-[90vh] p-4 overflow-auto">
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 text-black/60 hover:text-black"
+        >
+          ✕
+        </button>
         <div className="text-lg font-bold mb-2">Raffle Test-Terminal</div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-          <label className="text-sm">
-            Grid tiles (0–6)
-            <select className="w-full border px-2 py-1 rounded" defaultValue={String(6)} onChange={(e) => {
-              try { const v = Number(e.target.value); (window as any).__drop_setGridCount?.(v); } catch { }
-            }}>
-              <option value="0">0</option>
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5</option>
-              <option value="6">6</option>
-            </select>
-          </label>
           <label className="text-sm">
             Datum (YYYY-MM-DD)
             <input
@@ -468,17 +432,6 @@ function RaffleTestTerminal({
               className="w-full border px-2 py-1 rounded"
             />
           </label>
-          <div className="text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={rtShowDividers}
-                onChange={(e) => setRtShowDividers(e.target.checked)}
-                className="rounded border-gray-300"
-              />
-              <span>Zeige Section Divider</span>
-            </label>
-          </div>
           <div className="text-sm flex flex-col gap-2">
             <label className="flex items-center gap-2">
               <input
@@ -527,31 +480,11 @@ function RaffleTestTerminal({
             Entries laden
           </button>
           <button
-            className={`px-3 py-1 rounded bg-black text-white disabled:opacity-50 relative flex items-center justify-center`}
-            aria-label={`Teilnehmen an Drop`}
-            disabled={loading}
-            onClick={async () => {
-              try {
-                const auth = getAuth();
-                const user = auth.currentUser;
-                if (!user) { alert('Bitte einloggen'); return; }
-                setLoading(true);
-                const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'enterDrop');
-                const res: any = await fn({ entryId: `test-entry-${seed}` });
-                if (res?.data?.ok) {
-                  alert(`Teilnahme erfolgreich (${res.data.count})`);
-                } else {
-                  alert(`Fehler: ${String(res?.data?.message || 'unknown')}`);
-                }
-              } catch (e) {
-                console.error('test-enterDrop failed', e);
-                alert(`Fehler: ${String(e)}`);
-              } finally {
-                setLoading(false);
-              }
-            }}
+            onClick={runSim}
+            className="px-3 py-1 rounded bg-black text-white"
+            disabled={entrants.length === 0}
           >
-            <span className="text-center">{loading ? 'Sende...' : 'Teilnehmen'}</span>
+            Ziehung simulieren
           </button>
           <button
             onClick={runCloudRaffle}
@@ -584,7 +517,6 @@ function RaffleTestTerminal({
 
         {entrants.length > 0 && (
           <div className="mb-3 overflow-auto max-h-48 border rounded">
-            <div className="p-2 text-sm font-semibold">Teilnehmerliste</div>
             <table className="min-w-full text-xs">
               <thead>
                 <tr>
@@ -593,10 +525,10 @@ function RaffleTestTerminal({
                 </tr>
               </thead>
               <tbody>
-                {entrants.map((e: any, i: number) => (
-                  <tr key={e?.uid ?? i} className={i % 2 ? 'bg-black/5' : ''}>
-                    <td className="p-1">{e?.uid ?? e?.id ?? '\u2014'}</td>
-                    <td className="p-1 text-right">{e?.w ?? ''}</td>
+                {entrants.slice(0, 200).map((e, i) => (
+                  <tr key={`${e.uid}-${i}`} className={i % 2 ? 'bg-black/5' : ''}>
+                    <td className="p-1">{e.uid}</td>
+                    <td className="p-1 text-right tabular-nums">{e.w}</td>
                   </tr>
                 ))}
               </tbody>
@@ -859,58 +791,6 @@ function CountdownPreviewCard({ title, timeLabel }: { title: string; timeLabel: 
   );
 }
 
-function ParticipateButton({ activeTile, setActiveTile, item }: { activeTile: number | null; setActiveTile: (n: number | null) => void; item?: { src: string; toMs?: number | null; headline?: string | null; subtitle?: string | null; content?: string | null } | null }) {
-  const [busy, setBusy] = useState(false);
-  const onClick = async (ev?: React.SyntheticEvent) => {
-    ev?.stopPropagation();
-    if (!item) return;
-    try {
-      setBusy(true);
-      const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'enterDrop');
-      const entryId = (item as any)?.id ?? (item as any)?.name ?? (item as any)?.title ?? null;
-      if (!entryId) {
-        alert('Ungültiger Eintrag');
-        return;
-      }
-      const res = await fn({ entryId });
-      if (res?.data?.ok) {
-        alert(`Teilnahme erfolgreich (${res.data.count})`);
-        setActiveTile(null);
-      } else {
-        const serverMsg = String(res?.data?.message || 'unknown');
-        if (serverMsg.includes('insufficient-coins')) {
-          alert('Nicht genügend Coins.');
-        } else {
-          alert(`Fehler: ${serverMsg}`);
-        }
-      }
-    } catch (err: unknown) {
-      console.error('enterDrop failed', err);
-      const msg = (err as any)?.message ?? String(err);
-      if (String(msg).includes('insufficient-coins')) {
-        alert('Nicht genügend Coins.');
-      } else {
-        alert(`Fehler: ${msg}`);
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      aria-label={`Teilnehmen an Drop ${activeTile !== null ? activeTile + 1 : ''}`}
-      onClick={onClick}
-      disabled={busy}
-      className={`w-full py-4 ${busy ? 'opacity-60 pointer-events-none' : ''} bg-black text-white rounded-2xl text-lg font-bold shadow-lg hover:opacity-95 transition-opacity`}
-      style={{ boxShadow: '0 8px 20px rgba(0,0,0,0.35)' }}
-    >
-      {busy ? 'Sende...' : 'Teilnehmen'}
-    </button>
-  );
-}
-
 
 // 3D tilt Steam-style gift card sprite for prize pool
 function GiftCard3D({ title, img, children }: { title?: string; img?: string; children?: React.ReactNode }) {
@@ -944,21 +824,13 @@ function GiftCard3D({ title, img, children }: { title?: string; img?: string; ch
       onMouseMove={handle}
       onMouseLeave={leave}
       className="holo group relative w-full h-full [perspective:1200px] select-none"
-      style={{ transformStyle: 'preserve-3d' }}
     >
-      <div 
-        className="card relative w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black/30 backdrop-blur-[2px]"
-        style={{
-          transform: 'rotateX(calc(var(--rx, 0) * 0.3deg)) rotateY(calc(var(--ry, 0) * 0.3deg)) translateX(calc(var(--tx, 0px) * 0.3)) translateY(calc(var(--ty, 0px) * 0.3))',
-          transformStyle: 'preserve-3d',
-          transition: 'transform 0.15s ease-out',
-        }}
-      >
+      <div className="card relative w-full h-full rounded-2xl overflow-hidden border border-white/10 bg-black/30 backdrop-blur-[2px]">
         {/* Base gradient similar to minigame when no image is supplied */}
         {img ? (
           <img src={img} alt={title || 'Preis'} className="absolute inset-0 w-full h-full object-cover" />
         ) : (
-          <img src="/error-frame.svg" alt="Frame" className="absolute inset-0 w-full h-full object-cover rounded-2xl" />
+          <div className="absolute inset-0 bg-gradient-to-br from-neutral-200 via-white to-neutral-100" />
         )}
         {/* Animated neon border replaced with static border */}
         <div
@@ -992,63 +864,51 @@ function NeonHoloCard({ title, subtitle, timeLabel, img, onImgLoad, onImgError, 
     el.style.setProperty('--rx', '0');
     el.style.setProperty('--ry', '0');
   };
-
-  // Centralized start handler (called from button, wrapper pointer events and keyboard)
-  const startHandler = (ev?: React.SyntheticEvent) => {
-    try {
-      console.log('[MINIGAME CLICK] Start handler invoked, title:', title, 'uid:', uid);
-      if (!uid) {
-        console.log('[MINIGAME CLICK] not logged in, showing account');
-        try { onShowAccount?.(); } catch {}
-        return;
-      }
-
-      try { onStart?.(); } catch {}
-      try { markDropStart(); } catch (e) { console.error('[MINIGAME CLICK] markDropStart failed:', e); }
-      const gameRoute = title && title !== 'Minigame' ? `/games/${title}` : '/games/tap-rush';
-      // Use client-side navigation if available (Next router fallback), else location
-      try {
-        // prefer window.location for now to ensure navigation in all environments
-        window.location.href = gameRoute;
-      } catch (e) {
-        console.error('[NAVIGATION] navigation failed:', e);
-      }
-    } catch (e) {
-      console.error('[MINIGAME CLICK] startHandler unexpected error', e);
-    }
-  };
-
-  // Allow keyboard activation when focused
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      startHandler();
-    }
-  };
-
   return (
-    <div 
-      ref={wrapRef} 
-      onMouseMove={handle} 
-      onMouseLeave={leave}
-      onClick={() => startHandler()}
-      onKeyDown={onKeyDown}
-      role="button"
-      tabIndex={0}
-      className="holo group relative w-full h-full [perspective:1200px] select-none"
-      style={{ transformStyle: 'preserve-3d', outline: 'none' }}
-    >
+    <div ref={wrapRef} onMouseMove={handle} onMouseLeave={leave}
+      className="holo group relative w-full h-full [perspective:1200px] select-none">
       {/* 3D card */}
       <button
         type="button"
         aria-label={uid ? "Spiel starten" : "Einloggen zum Spielen"}
-        onClick={(e) => { e.stopPropagation(); startHandler(); }}
-        className="card relative w-[120%] -ml-[10%] h-full rounded-2xl overflow-hidden border border-white/10 bg-black/30 backdrop-blur-[2px] shadow-[0_10px_50px_rgba(0,0,0,0.45)]"
-        style={{
-          transform: 'rotateX(calc(var(--rx, 0) * 1deg)) rotateY(calc(var(--ry, 0) * 1deg))',
-          transformStyle: 'preserve-3d',
-          transition: 'transform 0.1s ease-out',
+        onClick={() => {
+          console.log('[MINIGAME CLICK] Button clicked, uid:', uid, 'title:', title);
+          
+          // Check if user is logged in
+          if (!uid) {
+            console.log('[MINIGAME CLICK] User not logged in, showing account panel');
+            // User not logged in - show account panel instead
+            try { onShowAccount?.(); } catch {}
+            return;
+          }
+          
+          console.log('[MINIGAME CLICK] User logged in, proceeding with game');
+          // User is logged in - proceed with game
+          try { onStart?.(); } catch {}
+          try { 
+            console.log('[MINIGAME CLICK] Calling markDropStart...');
+            markDropStart(); 
+          } catch (e) {
+            console.error('[MINIGAME CLICK] markDropStart failed:', e);
+          }
+          // Dynamic navigation based on game title/slug
+          try {
+            const gameRoute = title && title !== 'Minigame' ? `/games/${title}` : '/games/tap-rush';
+            console.log('[NAVIGATION] Attempting navigation to:', gameRoute);
+            window.location.href = gameRoute;
+            console.log('[NAVIGATION] Navigation command sent successfully');
+          } catch (e) {
+            console.error('[NAVIGATION] Primary navigation failed:', e);
+            // Fallback to tap-rush if navigation fails
+            try {
+              console.log('[NAVIGATION] Trying fallback to /games/tap-rush');
+              window.location.href = '/games/tap-rush';
+            } catch (e2) {
+              console.error('[NAVIGATION] Fallback navigation also failed:', e2);
+            }
+          }
         }}
+        className="card relative w-[120%] -ml-[10%] h-full rounded-2xl overflow-hidden border border-white/10 bg-black/30 backdrop-blur-[2px] shadow-[0_10px_50px_rgba(0,0,0,0.45)]"
       >
         {/* Background image only */}
         {img ? (
@@ -1060,7 +920,7 @@ function NeonHoloCard({ title, subtitle, timeLabel, img, onImgLoad, onImgError, 
             onError={onImgError}
           />
         ) : (
-          <img src="/error-frame.svg" alt="Frame" className="absolute inset-0 w-full h-full object-cover rounded-2xl" />
+          <div className="absolute inset-0 bg-gradient-to-br from-fuchsia-600 via-purple-600 to-rose-500" />
         )}
 
         {/* Animated neon border replaced with static border */}
@@ -1090,75 +950,14 @@ function NeonHoloCard({ title, subtitle, timeLabel, img, onImgLoad, onImgError, 
   );
 }
 
-// Reusable small Tile wrapper using same mouse-tilt logic as NeonHoloCard
-function Tile3D({ children }: { children: React.ReactNode }) {
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const handle = (e: React.MouseEvent<HTMLDivElement>) => {
-    const el = wrapRef.current; if (!el) return;
-    const r = el.getBoundingClientRect();
-    const x = (e.clientX - r.left) / r.width;   // 0..1
-    const y = (e.clientY - r.top) / r.height;  // 0..1
-    // stronger tilt intensity
-    const rx = (0.5 - y) * 20; // tilt intensity
-    const ry = (x - 0.5) * 22;
-    el.style.setProperty('--rx', rx.toFixed(2));
-    el.style.setProperty('--ry', ry.toFixed(2));
-  };
-  const leave = () => {
-    const el = wrapRef.current; if (!el) return;
-    el.style.setProperty('--rx', '0');
-    el.style.setProperty('--ry', '0');
-  };
-  return (
-    <div ref={wrapRef} onMouseMove={handle} onMouseLeave={leave} className="[perspective:1200px]" style={{ transformStyle: 'preserve-3d' }}>
-      <div style={{ transform: 'perspective(1200px) translateZ(6px) rotateX(calc(var(--rx, 0) * 0.6deg)) rotateY(calc(var(--ry, 0) * 0.6deg))', transition: 'transform 180ms cubic-bezier(.2,.9,.25,1)' }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 
 export default function DropPage() {
+
+
   const [isHydrated, setIsHydrated] = useState(false);
   useEffect(() => {
     setIsHydrated(true);
   }, []);
-
-  // Ensure we land at the top immediately on first paint (stronger than the post-hydration effect)
-  useLayoutEffect(() => {
-    try {
-      const docEl = document.scrollingElement as HTMLElement | null;
-      if (docEl) docEl.scrollTo?.({ top: 0 });
-      const sc = scrollContainerRef.current;
-      if (sc) sc.scrollTop = 0;
-    } catch {}
-    // run once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Ensure reload (F5) starts at top: prefer manual scroll restoration and
-  // reset both document and inner container scroll on first hydration.
-  useEffect(() => {
-    if (!isHydrated) return;
-    try {
-      if (history && 'scrollRestoration' in history) {
-        try { (history as any).scrollRestoration = 'manual'; } catch { /* ignore */ }
-      }
-    } catch {}
-
-    try {
-      // reset document scroll
-      const docEl = document.scrollingElement as HTMLElement | null;
-      if (docEl) docEl.scrollTo?.({ top: 0 });
-    } catch {}
-
-    try {
-      // reset inner container if present
-      const sc = scrollContainerRef.current;
-      if (sc) sc.scrollTop = 0;
-    } catch {}
-  }, [isHydrated]);
 
   // Auto-Refresh um 20:15 Uhr Berlin Zeit
   useEffect(() => {
@@ -1399,7 +1198,7 @@ export default function DropPage() {
     try {
       try {
         await deleteUser(u);
-  } catch (e) {
+      } catch (e: any) {
         if (e?.code === 'auth/requires-recent-login') {
           await reauthenticateWithPopup(u, new GoogleAuthProvider());
           await deleteUser(u);
@@ -1419,44 +1218,14 @@ export default function DropPage() {
   const [mustComplete, setMustComplete] = useState(false);
   const [authUser, setAuthUser] = useState<ReturnType<typeof getAuth>["currentUser"] | null>(null);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
-  const [selectedLocalAvatar, setSelectedLocalAvatar] = useState<string | null>(null);
   const [showTest, setShowTest] = useState(false);
-
-  // Load selected local avatar from localStorage
-  useEffect(() => {
-    try {
-      const savedAvatar = localStorage.getItem('selectedLocalAvatar');
-      if (savedAvatar && savedAvatar.startsWith('/pfpfs/')) {
-        setSelectedLocalAvatar(savedAvatar);
-      }
-    } catch (e) {
-      console.warn('Could not load selected avatar from localStorage', e);
-    }
-  }, []);
-
-  // Listen for avatar changes from AccountPanel
-  useEffect(() => {
-    const handleAvatarChange = (event: CustomEvent<{ avatar: string }>) => {
-      setSelectedLocalAvatar(event.detail.avatar);
-    };
-    
-    window.addEventListener('localAvatarChanged', handleAvatarChange as EventListener);
-    return () => window.removeEventListener('localAvatarChanged', handleAvatarChange as EventListener);
-  }, []);
   const [forceRaffleWindow, setForceRaffleWindow] = useState(false);
   const [testEnabled, setTestEnabled] = useState(false);
 
   useEffect(() => {
     try {
-      // Only allow test terminal during development/non-production builds.
-      // Using process.env.NODE_ENV enables bundlers to drop this branch from production builds.
-      if (process.env.NODE_ENV === 'production') {
-        setTestEnabled(false);
-        return;
-      }
       const url = new URL(window.location.href);
-      const hostname = (url.hostname || '').toLowerCase();
-      const enable = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+      const enable = url.searchParams.get('test') === '1' || url.hostname === 'localhost';
       setTestEnabled(!!enable);
     } catch {}
   }, []);
@@ -1736,856 +1505,89 @@ export default function DropPage() {
   // scroll container and footer refs to control header visibility on last screen
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const footerSectionRef = useRef<HTMLElement | null>(null);
-  const modalContentRef = useRef<HTMLDivElement | null>(null);
-  const participateButtonRef = useRef<HTMLButtonElement | null>(null);
-  const bubbleRef = useRef<HTMLDivElement | null>(null);
-  const [bubbleStyle, setBubbleStyle] = useState<{ bottom?: string; right?: string } | null>(null);
   const [hideTopOnFooter, setHideTopOnFooter] = useState<boolean>(false);
-  // Test grid on second screen
-  const [gridCount, setGridCount] = useState<number>(6);
-  const [gridImages, setGridImages] = useState<string[]>([]);
-  const [gridItems, setGridItems] = useState<Array<{ id?: string | null; src: string; toMs?: number | null; headline?: string | null; subtitle?: string | null; content?: string | null; interval?: string | undefined }>>([]);
-  const [activeTile, setActiveTile] = useState<number | null>(null);
-  const [popupLoading, setPopupLoading] = useState<boolean>(false);
-  // Prevent page scroll when grid popup is open
-  const bodyOverflowRef = useRef<string | null>(null);
-  useEffect(() => {
-    try {
-      if (activeTile !== null) {
-        // save previous value
-        bodyOverflowRef.current = document.body.style.overflow || '';
-        document.body.style.overflow = 'hidden';
-      } else {
-        if (bodyOverflowRef.current !== null) {
-          document.body.style.overflow = bodyOverflowRef.current || '';
-          bodyOverflowRef.current = null;
-        } else {
-          document.body.style.removeProperty('overflow');
-        }
-      }
-    } catch (e) {
-      /* ignore */
-    }
-    return () => {
-      try {
-        if (bodyOverflowRef.current !== null) {
-          document.body.style.overflow = bodyOverflowRef.current || '';
-          bodyOverflowRef.current = null;
-        } else {
-          document.body.style.removeProperty('overflow');
-        }
-      } catch (e) { /* ignore */ }
-    };
-  }, [activeTile]);
-  
-  // Participant counts for the active tile popup
-  // participation counts are shown only in the bubble; we don't keep total count state here
-  const [myParticipationCount, setMyParticipationCount] = useState<number | null>(null);
-  const [myLastParticipatedMs, setMyLastParticipatedMs] = useState<number | null>(null);
-  const [nextAllowedMs, setNextAllowedMs] = useState<number | null>(null);
-  const [canParticipate, setCanParticipate] = useState<boolean>(true);
-  const [countdownMs, setCountdownMs] = useState<number | null>(null);
-  const [popupBusy, setPopupBusy] = useState<boolean>(false);
-
-  // Measure button and modal to position the speech bubble exactly above the button
-  useEffect(() => {
-    let mounted = true;
-    const update = () => {
-      try {
-        const modal = modalContentRef.current;
-        const btn = participateButtonRef.current;
-        const bubbleEl = bubbleRef.current;
-        if (!modal || !btn) {
-          if (mounted) setBubbleStyle(null);
-          return;
-        }
-        const modalRect = modal.getBoundingClientRect();
-        const btnRect = btn.getBoundingClientRect();
-        const bubbleRect = bubbleEl?.getBoundingClientRect();
-        // distance from modal bottom to button top
-        const base = Math.round(modalRect.bottom - btnRect.top);
-  // position so the bubble's lower edge is slightly closer to the button
-  // subtract a small offset (based on bubble height or a sensible default)
-  // no extra offset: bubble lower edge should touch the button top
-  let bottomPx = base;
-        if (!mounted) return;
-        setBubbleStyle({ bottom: `${bottomPx}px`, right: '12px' });
-      } catch (e) {
-        // ignore
-      }
-    };
-    update();
-    window.addEventListener('resize', update);
-    return () => { mounted = false; window.removeEventListener('resize', update); };
-  }, [activeTile, popupLoading, myParticipationCount]);
-
-  // Load participant counts for the active tile whenever it changes
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setPopupLoading(false);
-      try {
-        if (activeTile === null) {
-          if (!cancelled) {
-                // no-op: total count not tracked here
-            setMyParticipationCount(null);
-            // removed participantsLoading state
-          }
-          return;
-        }
-
-        const item = gridItems[activeTile];
-        if (!item) {
-          if (!cancelled) {
-                // no-op: total count not tracked here
-            setMyParticipationCount(null);
-            // removed participantsLoading state
-          }
-          return;
-        }
-
-        let entryId: string | null = (item as any)?.id ?? (item as any)?.__id ?? null;
-        if (!entryId) {
-          // fallback to index-based synthetic id
-          entryId = `drop-item-${activeTile}`;
-        }
-
-  // loading state not needed for bubble-only display
-        const fs = getFirestore();
-        const partsCol = collection(fs, 'drop-vault-entries', entryId, 'participants');
-  // show loading spinner while we fetch popup data
-  if (!cancelled) setPopupLoading(true);
-  // Fetch all participant docs and sum their `count` fields (fallback to 1 per doc)
-  const snap = await getDocs(partsCol);
-        if (cancelled) return;
-        // we don't display the total count in the modal body anymore; leave aggregation out
-
-        // Fetch current user's participant doc (if logged in)
-        if (uid) {
-          try {
-            const myDocRef = doc(fs, 'drop-vault-entries', entryId, 'participants', uid);
-            const mySnap = await getDoc(myDocRef);
-            if (!cancelled) {
-              if (mySnap.exists()) {
-                const md: any = mySnap.data();
-                setMyParticipationCount(typeof md?.count === 'number' ? md.count : 1);
-                const lp = md?.lastParticipated?.toMillis ? md.lastParticipated.toMillis() : (typeof md?.lastParticipated === 'number' ? md.lastParticipated : null);
-                setMyLastParticipatedMs(typeof lp === 'number' ? lp : null);
-              } else {
-                setMyParticipationCount(0);
-                setMyLastParticipatedMs(null);
-              }
-            }
-          } catch (e) {
-            if (!cancelled) setMyParticipationCount(null);
-          }
-        } else {
-          setMyParticipationCount(null);
-          setMyLastParticipatedMs(null);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          // removed participantsTotalCount state
-          setMyParticipationCount(null);
-        }
-      } finally {
-  if (!cancelled) { try { setPopupLoading(false); } catch {} }
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [activeTile, gridItems, uid]);
-
-  // Compute nextAllowedMs & canParticipate when myLastParticipatedMs or activeTile changes
-  useEffect(() => {
-    const compute = () => {
-      setNextAllowedMs(null);
-      setCanParticipate(true);
-      if (activeTile === null) return;
-      const item = gridItems[activeTile];
-      if (!item) return;
-      const interval = (item as any)?.interval || (item as any)?.public?.interval || 'hourly';
-      const now = serverNowBaseRef.current + (performance.now() - perfBaseRef.current);
-      const lp = myLastParticipatedMs;
-      if (!lp) {
-        setCanParticipate(true);
-        setNextAllowedMs(null);
-        return;
-      }
-      if (interval === 'hourly') {
-        const next = Number(lp) + 60 * 60 * 1000; // +1 hour
-        setNextAllowedMs(next);
-        setCanParticipate(next <= now);
-        try { console.debug('[participation] compute hourly', { interval, lp, next, now, can: next <= now }); } catch {}
-        return;
-      }
-      // daily: allow once per Berlin day (use berlinYMD helper)
-      try {
-        const lastDay = berlinYMD(lp);
-        const nowDay = berlinYMD(now);
-        if (lastDay !== nowDay) {
-          setCanParticipate(true);
-          setNextAllowedMs(null);
-        } else {
-          // compute start of next Berlin day (00:00 next day) as nextAllowed
-          const parts = berlinPartsFromMs(lp);
-          const target = shiftBerlinDay({ year: parts.year, month: parts.month, day: parts.day }, 1);
-          const ms = getBerlinMidnightMs(target.year, target.month, target.day);
-          if (ms && Number.isFinite(ms)) {
-            setNextAllowedMs(ms);
-            setCanParticipate(ms <= now);
-            try { console.debug('[participation] compute daily', { interval, lp, ms, now, can: ms <= now }); } catch {}
-          } else {
-            setNextAllowedMs(null);
-            setCanParticipate(false);
-          }
-        }
-      } catch (e) {
-        setNextAllowedMs(null);
-        setCanParticipate(true);
-      }
-    };
-    compute();
-  }, [myLastParticipatedMs, activeTile, gridItems]);
-
-  // Countdown updater for nextAllowedMs
-  useEffect(() => {
-    if (!nextAllowedMs) {
-      setCountdownMs(null);
-      return;
-    }
-    let cancelled = false;
-    const update = () => {
-      const serverNow = serverNowBaseRef.current + (performance.now() - perfBaseRef.current);
-      const rem = Math.max(0, nextAllowedMs - serverNow);
-      if (!cancelled) setCountdownMs(rem);
-    };
-    update();
-    const iv = setInterval(update, 1000);
-    return () => { cancelled = true; clearInterval(iv); };
-  }, [nextAllowedMs]);
-
-  function formatCountdown(ms: number | null) {
-    if (ms === null) return '';
-    const s = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-  }
-
-  // Ensure items with expired toMs are removed immediately (handles stuck 0 display)
-  useEffect(() => {
-    const iv = setInterval(() => {
-      try {
-        const baseReady = serverNowBaseRef.current > 0 && perfBaseRef.current > 0;
-        const serverNow = baseReady ? (serverNowBaseRef.current + (performance.now() - perfBaseRef.current)) : Date.now();
-        setGridItems((prev) => {
-          const filtered = prev.filter(item => !item.toMs || (typeof item.toMs === 'number' && item.toMs > serverNow));
-          if (filtered.length === prev.length) return prev;
-          // sync images & count
-          const newImgs = filtered.map(i => i.src).slice(0, 36);
-          setGridImages((imgs) => {
-            if (imgs.length === newImgs.length && imgs.every((v, idx) => v === newImgs[idx])) return imgs;
-            return newImgs;
-          });
-          setGridCount(Math.max(0, Math.min(36, filtered.length)));
-          // close active modal if the active index was removed
-          setActiveTile((at) => (at === null ? null : (at < filtered.length ? at : null)));
-          return filtered;
-        });
-      } catch { /* ignore */ }
-    }, 1000);
-    return () => clearInterval(iv);
-  }, []);
-
-  function TileCountdown({ toMs }: { toMs?: number | null }) {
-    const [, setTick] = useState(0);
-    useEffect(() => {
-      if (!toMs) return;
-      const update = () => setTick((t) => t + 1);
-      const initialNow = serverNowBaseRef.current && perfBaseRef.current ? (serverNowBaseRef.current + (performance.now() - perfBaseRef.current)) : Date.now();
-      const remaining = Math.max(0, (toMs || 0) - initialNow);
-      const interval = remaining < 60000 ? 250 : 1000;
-      const iv = setInterval(update, interval);
-      return () => clearInterval(iv);
-    }, [toMs]);
-
-    if (!toMs) return null;
-    const serverNow = serverNowBaseRef.current && perfBaseRef.current ? (serverNowBaseRef.current + (performance.now() - perfBaseRef.current)) : Date.now();
-    let diff = Math.max(0, toMs - serverNow);
-    const dayMs = 24 * 60 * 60 * 1000;
-    const hourMs = 60 * 60 * 1000;
-    const minMs = 60 * 1000;
-
-    let display = '';
-    if (diff >= dayMs) {
-      const days = Math.floor(diff / dayMs);
-      display = `${days}d`;
-    } else if (diff >= hourMs) {
-      const hours = Math.floor(diff / hourMs);
-      display = `${hours}h`;
-    } else {
-      // less than 1 hour -> show MM:SS
-      const mins = Math.floor(diff / minMs);
-      const secs = Math.floor((diff % minMs) / 1000);
-      const mm = String(mins).padStart(2, '0');
-      const ss = String(Math.max(0, secs)).padStart(2, '0');
-      display = `${mm}:${ss}`;
-    }
-
-    return (
-      <div className="absolute top-2 right-2 pointer-events-none z-30">
-        <div className="px-3 py-1 rounded-full bg-white text-black text-xs font-semibold shadow-sm border border-black/10 tabular-nums antialiased leading-none" style={{ minWidth: 64, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', transform: 'translateZ(0)' }}>
-          {display}
-        </div>
-      </div>
-    );
-  }
-  // Expose a quick setter for the dev console: window.__drop_setGridCount(n)
-  useEffect(() => {
-    try {
-      (window as any).__drop_setGridCount = (n: number) => {
-        const v = Number(n) || 0;
-        setGridCount(Math.max(0, Math.min(36, Math.floor(v))));
-        console.log('[DEV] gridCount set to', v);
-      };
-    } catch { /* ignore */ }
-    return () => { try { delete (window as any).__drop_setGridCount; } catch {} };
-  }, []);
-
-  // Watch collection `drop-vault-entries` and build a list of image URLs (drop-image) for tiles
-  useEffect(() => {
-    try {
-      const fs = getFirestore();
-      const colRef = collection(fs, 'drop-vault-entries');
-      const unsub = onSnapshot(colRef, (snap) => {
-        (async () => {
-          try {
-            if (snap.empty) {
-              setGridImages([]);
-              setGridCount(0);
-              return;
-            }
-            // Map documents to entries array
-            const entries: Array<any> = [];
-            snap.forEach(docSnap => {
-              const data = docSnap.data() || {};
-              entries.push({ ...(data as any), __id: docSnap.id });
-            });
-
-            const itemsArr: Array<{ id?: string | null; src: string; toMs?: number | null; headline?: string | null; subtitle?: string | null; content?: string | null }> = [];
-            const nowServerMs = serverNowBaseRef.current + (performance.now() - perfBaseRef.current);
-            for (const node of entries) {
-              try {
-                // Default for this entry
-                let entryToMs: number | null = null;
-
-                // Respect optional publishing window: node.public.from / node.public.to
-                try {
-                  const pub = node?.public || node?.meta || null;
-                  if (pub) {
-                    const fromRaw = pub?.from ?? pub?.start ?? null;
-                    const toRaw = pub?.to ?? pub?.end ?? null;
-                    let fromMs: number | null = null;
-                    let toMs: number | null = null;
-                    if (fromRaw) {
-                      const d = (fromRaw?.toMillis ? fromRaw.toMillis() : (typeof fromRaw === 'number' ? fromRaw : Date.parse(String(fromRaw))));
-                      fromMs = Number.isFinite(d) ? Number(d) : null;
-                    }
-                    if (toRaw) {
-                      const d = (toRaw?.toMillis ? toRaw.toMillis() : (typeof toRaw === 'number' ? toRaw : Date.parse(String(toRaw))));
-                      toMs = Number.isFinite(d) ? Number(d) : null;
-                    }
-                    entryToMs = toMs ?? null;
-                    if ((fromMs && nowServerMs < fromMs) || (toMs && nowServerMs >= toMs)) {
-                      // Not yet public or already expired — skip this entry
-                      if (process.env.NODE_ENV !== 'production') {
-                        try {
-                          const label = node?.id || node?.name || node?.title || '<unknown>';
-                          console.debug('[drop] skipping entry by public window', { label, fromMs, toMs, nowServerMs });
-                        } catch { /* ignore */ }
-                      }
-                      continue;
-                    }
-                  }
-                } catch (pf) {
-                  // ignore public parsing errors and fall back to showing entry
-                }
-
-                const srcRaw = node?.['drop-image'] || node?.['dropImage'] || node?.['image'] || node?.['img'] || null;
-                const headline = node?.headline ?? node?.title ?? node?.name ?? null;
-                const subtitle = node?.subtitle ?? node?.desc ?? node?.description ?? null;
-                const content = node?.content ?? node?.text ?? node?.body ?? null;
-                if (!srcRaw) {
-                  const interval = (node?.interval ?? node?.public?.interval) || undefined;
-                  itemsArr.push({ id: node?.__id ?? node?.id ?? null, src: '/error-frame.svg', toMs: entryToMs, headline, subtitle, content, interval });
-                  continue;
-                }
-                const src = String(srcRaw);
-                if (!/^https?:\/\//i.test(src) && !src.startsWith('/')) {
-                  try {
-                    const resolved = await getCachedDownloadURL(src);
-                    const interval = (node?.interval ?? node?.public?.interval) || undefined;
-                    itemsArr.push({ id: node?.__id ?? node?.id ?? null, src: resolved || '/error-frame.svg', toMs: entryToMs, headline, subtitle, content, interval });
-                    continue;
-                  } catch (err) {
-                    console.warn('[drop] failed to resolve storage path', src, err);
-                    itemsArr.push({ id: node?.__id ?? node?.id ?? null, src: '/error-frame.svg', toMs: entryToMs, headline, subtitle, content });
-                    continue;
-                  }
-                }
-                const interval2 = (node?.interval ?? node?.public?.interval) || undefined;
-                itemsArr.push({ id: node?.__id ?? node?.id ?? null, src, toMs: entryToMs, headline, subtitle, content, interval: interval2 });
-              } catch (err) {
-                itemsArr.push({ id: null, src: '/error-frame.svg', toMs: null, headline: null, subtitle: null, content: null });
-              }
-            }
-
-            setGridItems(itemsArr.slice(0, 36));
-            setGridImages(itemsArr.map(i => i.src).slice(0, 36));
-            setGridCount(Math.max(0, Math.min(36, itemsArr.length)));
-          } catch (e) {
-            console.warn('[drop] parse drop-vault snapshot failed', e);
-          }
-        })();
-      }, (err) => {
-        console.warn('[drop] snapshot error for drop-vault', err);
-      });
-      return () => { try { unsub(); } catch {} };
-    } catch (e) {
-      console.warn('[drop] failed to subscribe to config/drop-vault', e);
-    }
-  }, []);
   // FAQ open state: which item is expanded (null = none)
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  // FAQ tab state (grouped sections)
-  const [faqTab, setFaqTab] = useState<'minigames' | 'tickets' | 'coins' | 'support'>('minigames');
-
-  // drop-spezifische FAQ-Gruppen
-  const faqGroups: Record<string, Array<{ question: string; answer: string }>> = {
-    minigames: [
-      {
-        question: 'Wie funktionieren die Minigames?',
-        answer:
-          'Minigames sind kleine Spiele, die du direkt im Browser spielen kannst. Für jede Runde erhältst du Coins und manchmal auch Tickets. Die Auswahl der Minigames ändert sich regelmäßig.',
-      },
-      {
-        question: 'Wie oft kann ich Minigames spielen?',
-        answer:
-          'Du kannst Minigames beliebig oft spielen. Für die Teilnahme an Verlosungen zählen jedoch nur die ersten Runden pro Tag, abhängig vom jeweiligen Spiel.',
-      },
-      {
-        question: 'Warum laden manche Minigames nicht?',
-        answer:
-          'Stelle sicher, dass du eine stabile Internetverbindung hast und kein Adblocker aktiv ist. Bei Problemen hilft ein Neuladen der Seite oder das Löschen des Browser-Caches.',
-      },
-      {
-        question: 'Welche Belohnungen gibt es in Minigames?',
-        answer:
-          'Du kannst Coins, Tickets und manchmal exklusive Items gewinnen. Die Belohnungen variieren je nach Spiel und Tagesaktion.',
-      },
-    ],
-    tickets: [
-      {
-        question: 'Was sind Tickets und wie bekomme ich sie?',
-        answer:
-          'Tickets sind deine Teilnahmeberechtigungen für die tägliche Verlosung. Du erhältst Tickets durch das Spielen von Minigames, besondere Aktionen oder als Belohnung für Streaks.',
-      },
-      {
-        question: 'Wie läuft die Verlosung ab?',
-        answer:
-          'Jeden Abend um 20:00 Uhr werden die Gewinner unter allen Ticket-Besitzern ausgelost. Je mehr Tickets du hast, desto höher sind deine Gewinnchancen.',
-      },
-      {
-        question: 'Kann ich Tickets übertragen oder verschenken?',
-        answer:
-          'Tickets sind nicht übertragbar und können nur vom eigenen Account genutzt werden.',
-      },
-      {
-        question: 'Wie hoch sind meine Gewinnchancen?',
-        answer:
-          'Deine Gewinnchance steigt mit der Anzahl deiner Tickets. Die genaue Wahrscheinlichkeit hängt von der Gesamtzahl aller Tickets am Tag ab.',
-      },
-      {
-        question: 'Was passiert, wenn ich gewinne?',
-        answer:
-          'Du wirst per Benachrichtigung und E-Mail informiert. Dein Gewinn erscheint direkt in deinem Account oder wird dir zugeschickt.',
-      },
-    ],
-    coins: [
-      {
-        question: 'Wie kann ich Coins verdienen?',
-        answer:
-          'Coins bekommst du für das Spielen von Minigames, tägliche Logins, das Einladen von Freunden und das Abschließen von Aufgaben. Coins kannst du gegen Prämien eintauschen.',
-      },
-      {
-        question: 'Wofür kann ich Coins verwenden?',
-        answer:
-          'Du kannst Coins im Shop gegen Items eintauschen und für die Teilnahme an Giveaways verwenden. Preise erhältst du ausschließlich über Verlosungen, nicht direkt für Coins.',
-      },
-      {
-        question: 'Verfallen meine Coins?',
-        answer:
-          'Coins verfallen nicht, solange dein Account aktiv bleibt. Bei längerer Inaktivität kann es jedoch zu einer Löschung kommen.',
-      },
-      {
-        question: 'Was sind Coin-Boosts?',
-        answer:
-          'Coin-Boosts sind zeitlich begrenzte Aktionen, bei denen du für bestimmte Aufgaben oder Spiele mehr Coins erhältst.',
-      },
-      {
-        question: 'Kann ich Coins mit anderen tauschen?',
-        answer:
-          'Ein direkter Tausch von Coins ist nicht möglich. Du kannst aber Freunde einladen und gemeinsam Belohnungen sammeln.',
-      },
-    ],
-    support: [
-      {
-        question: 'Ich habe ein technisches Problem – was tun?',
-        answer:
-          'Prüfe zunächst, ob du die neueste Browserversion verwendest und alle Updates installiert sind. Bei anhaltenden Problemen kontaktiere den Support über das Kontaktformular.',
-      },
-      {
-        question: 'Wie sicher sind meine Daten bei drop?',
-        answer:
-          'Deine Daten werden nach aktuellen Standards verschlüsselt und nicht an Dritte weitergegeben. Details findest du in unserer Datenschutzerklärung.',
-      },
-      {
-        question: 'Wie kann ich den Support erreichen?',
-        answer:
-          'Du erreichst uns über das Kontaktformular oder per E-Mail an support@drop-app.de. Wir antworten in der Regel innerhalb von 24 Stunden.',
-      },
-      {
-        question: 'Wie kann ich meinen Account schützen?',
-        answer:
-          'Nutze ein sicheres Passwort und teile deine Zugangsdaten niemals mit anderen.',
-      },
-      {
-        question: 'Gibt es eine drop-Community?',
-        answer:
-          'Ja! Du kannst dich mit anderen Nutzern im Community-Bereich austauschen, an Events teilnehmen und Tipps teilen.',
-      },
-    ],
-  };
 
   useEffect(() => {
+    const container = scrollContainerRef.current;
     const footer = footerSectionRef.current;
-    if (!footer) return;
+    if (!container || !footer) return;
     if (typeof IntersectionObserver === 'undefined') return;
-
-    const rootForIo = null; // always use the viewport as root
-    console.log('SNAP_DEBUG footer IO attached (root=viewport)');
 
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
-        try {
-          if ((window as any).__drop_snapping) {
-            console.log('SNAP_DEBUG footer IO skipped due to programmatic snap');
-            continue;
-          }
-        } catch { /* ignore */ }
-
-        const ratio = e.intersectionRatio || 0;
-        console.log('SNAP_DEBUG footer IO', { isIntersecting: e.isIntersecting, ratio });
-        // if footer is at least 60% visible within the scroll container/viewport, hide topbar
-        if (e.isIntersecting && ratio >= 0.6) {
+        // if footer is at least 60% visible within the scroll container, hide topbar
+        if (e.isIntersecting && e.intersectionRatio >= 0.6) {
           setHideTopOnFooter(true);
         } else {
           setHideTopOnFooter(false);
         }
       }
-    }, { root: rootForIo, threshold: [0.0, 0.25, 0.5, 0.6, 0.75, 1.0] });
+    }, { root: container, threshold: [0.0, 0.25, 0.5, 0.6, 0.75, 1.0] });
 
     io.observe(footer);
     return () => io.disconnect();
   }, []);
 
-  // Development-only debug: determine which element actually scrolls and
-  // dump computed styles relevant to scroll-snap. Logs only in dev mode.
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'production') return;
-    if (typeof window === 'undefined') return;
-  const container = scrollContainerRef.current;
-  if (!container) return;
-  const c = container as HTMLDivElement;
-    let lastScrollTop = container.scrollTop;
-    let prevWindowY = typeof window !== 'undefined' ? window.scrollY : 0;
-    let lastWindowY = prevWindowY;
-  // Throttle RAF variable for logging
-  let raf = 0 as number | null;
-
-    function dumpStyles(el: Element | null, name: string) {
-      if (!el) return;
-      try {
-        const cs = window.getComputedStyle(el as Element);
-        console.log('SNAP_DEBUG styles for', name, {
-          overflow: cs.overflow,
-          overflowY: cs.overflowY,
-          scrollSnapType: cs.getPropertyValue('scroll-snap-type'),
-          transform: cs.transform,
-          willChange: cs.willChange,
-        });
-      } catch (err) { console.warn('SNAP_DEBUG failed to read styles for', name, err); }
-    }
-
-  function onScroll() {
-    // Throttle via RAF to avoid noisy logs
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = null;
-      try {
-        const st = c.scrollTop;
-        lastScrollTop = st;
-        prevWindowY = typeof window !== 'undefined' ? window.scrollY : prevWindowY;
-        lastWindowY = prevWindowY;
-        // Minimal debug output in dev only
-        if (process.env.NODE_ENV !== 'production') {
-          // Log every ~10th scroll to avoid spamming
-          if (Math.abs(st - lastScrollTop) > 50) dumpStyles(c, 'container');
-        }
-      } catch (err) {
-        console.warn('SNAP_DEBUG onScroll error', err);
-      }
-    });
-  }
-
-    // Let CSS handle scroll-snap natively first, fallback only if needed
-    // Uncomment below lines only if native scroll-snap doesn't work
-    // const containerScrollableNow = c.scrollHeight > c.clientHeight;
-    // if (containerScrollableNow) {
-    //   c.addEventListener('scroll', scheduleSnap, { passive: true });
-    //   console.log('SNAP_DEBUG attached scheduleSnap to container');
-    // } else {
-    //   window.addEventListener('scroll', scheduleSnap, { passive: true });
-    //   console.log('SNAP_DEBUG attached scheduleSnap to window');
-    // }
-
-    // Verify scroll-snap is working and apply it to the correct element
-    function ensureScrollSnap() {
-      try {
-        const containerScrollable = c.scrollHeight > c.clientHeight;
-        const docEl = document.scrollingElement as HTMLElement | null;
-        
-        console.log('SCROLL-SNAP DEBUG:', {
-          containerScrollable,
-          containerScrollHeight: c.scrollHeight,
-          containerClientHeight: c.clientHeight,
-          windowScrollY: window.scrollY,
-          documentScrollTop: docEl?.scrollTop || 0
-        });
-        
-        // Apply scroll-snap to the element that actually scrolls (no padding needed)
-        if (containerScrollable) {
-          // Container scrolls - apply to container
-          c.style.scrollSnapType = 'y mandatory';
-          console.log('Applied scroll-snap to container');
-        } else {
-          // Document scrolls - apply to document
-          if (docEl) {
-            docEl.style.scrollSnapType = 'y mandatory';
-            console.log('Applied scroll-snap to document');
-          }
-          // Also ensure body/html don't interfere
-          document.body.style.scrollSnapType = 'y mandatory';
-          document.documentElement.style.scrollSnapType = 'y mandatory';
-        }
-        
-        return () => {
-          // Cleanup on unmount
-          try {
-            if (containerScrollable) {
-              c.style.removeProperty('scroll-snap-type');
-            } else {
-              if (docEl) {
-                docEl.style.removeProperty('scroll-snap-type');
-              }
-              document.body.style.removeProperty('scroll-snap-type');
-              document.documentElement.style.removeProperty('scroll-snap-type');
-            }
-          } catch { /* ignore */ }
-        };
-      } catch (e) {
-        console.warn('Failed to ensure scroll-snap:', e);
-        return () => {};
-      }
-    }
-
-    const ensureCleanup = ensureScrollSnap();
-
-    // Attach scroll listener to container for debug logging
-    try {
-      c.addEventListener('scroll', onScroll, { passive: true });
-  } catch { /* ignore */ }
-
-    return () => {
-      try { c.removeEventListener('scroll', onScroll); } catch {}
-      if (raf) cancelAnimationFrame(raf as number);
-      try {
-        if (typeof ensureCleanup === 'function') ensureCleanup();
-      } catch { /* ignore */ }
-    };
-    // Intentionally no dependencies: we only want to attach once on mount
-  }, []);
-
-  // Scroll restoration: Nach F5 immer oben starten
-  useLayoutEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Browser-Scroll-Restoration deaktivieren
-      if ('scrollRestoration' in history) {
-        history.scrollRestoration = 'manual';
-      }
-      
-      // Beim Mount zur Spitze scrollen - aber erst nach kurzer Verzögerung
-      const scrollToTop = () => {
-        const container = scrollContainerRef.current;
-        if (container) {
-          // Force scroll to top
-          container.scrollTop = 0;
-          console.log('Scrolled container to top');
-        }
-      };
-      
-      // Immediate scroll + delayed scroll to ensure it works
-      scrollToTop();
-      setTimeout(scrollToTop, 100);
-    }
-  }, []);
-
-  // CSS-driven ticker: measure once and use GPU-accelerated CSS animation
+  // RAF-driven ticker: single DOM node, immediate reset when fully left
   useEffect(() => {
     const span = smallTickerSpanRef.current;
     if (!span) return;
     if (typeof window === 'undefined') return;
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-  // ensure base styles
+    let rafId = 0;
+    let lastTs: number | null = null;
+    let x = window.innerWidth;
+
+    // initialize styles to ensure consistent positioning
     span.style.position = 'absolute';
     span.style.top = '50%';
     span.style.left = '0';
     span.style.whiteSpace = 'nowrap';
     span.style.willChange = 'transform';
-    span.style.backfaceVisibility = 'hidden';
+    span.style.transform = `translateX(${x}px) translateY(-50%)`;
 
-    function startCssTicker() {
-      if (!span) return;
-      // measure text width once
-      const rect = span.getBoundingClientRect();
-      const textWidth = rect.width || span.offsetWidth || 0;
-      const distance = window.innerWidth + textWidth;
-  const speed = 80; // px/s — much slower for better readability
-  // ensure a minimum duration so very short messages are readable
-  const duration = Math.max(8, distance / speed);
-      span.style.animationDuration = `${duration}s`;
-      // set CSS variables so the keyframes start/end exactly off-screen
-      span.style.setProperty('--startX', `${window.innerWidth}px`);
-      span.style.setProperty('--endX', `${-textWidth}px`);
-      // add the css-anim marker class (selector: .small-ticker-text.css-anim)
-      span.classList.add('css-anim');
+    function step(ts: number) {
+      if (!lastTs) lastTs = ts;
+      const dt = (ts - lastTs) / 1000;
+      lastTs = ts;
+      const speed = 140; // px/s
+      x -= speed * dt;
+      const w = span.offsetWidth || 0;
+      span.style.transform = `translateX(${x}px) translateY(-50%)`;
+      if (x + w < 0) {
+        // immediate wrap
+        x = window.innerWidth;
+        lastTs = null;
+        span.style.transform = `translateX(${x}px) translateY(-50%)`;
+      }
+      rafId = requestAnimationFrame(step);
     }
 
-    function stopCssTicker() {
-      if (!span) return;
-      span.classList.remove('css-anim');
-      span.style.removeProperty('animation-duration');
-      span.style.removeProperty('--startX');
-      span.style.removeProperty('--endX');
+    function onResize() {
+      x = window.innerWidth;
+      lastTs = null;
+      span.style.transform = `translateX(${x}px) translateY(-50%)`;
     }
 
-    startCssTicker();
-
-    const onResize = () => {
-      // restart animation on resize to recalc width/duration
-      stopCssTicker();
-      // next frame ensure reflow before restarting
-      requestAnimationFrame(() => startCssTicker());
-    };
-
-    window.addEventListener('resize', onResize, { passive: true });
+    window.addEventListener('resize', onResize);
+    rafId = requestAnimationFrame(step);
 
     return () => {
+      cancelAnimationFrame(rafId);
       window.removeEventListener('resize', onResize);
-      stopCssTicker();
     };
   }, [smallTicker]);
   // Readiness flags for images
   const [collageReady, setCollageReady] = useState(false);
   const [gameReady, setGameReady] = useState(false);
   const [minigameResolved, setMinigameResolved] = useState(false);
-  // Image preloading state & cache: ensure grid images are preloaded during initial loading
-  const [imagesPreloaded, setImagesPreloaded] = useState(false);
-  const preloadCacheRef = useRef<Set<string> | null>(null);
-
-  // Preload image URLs from gridImages during initial load. Wait until all
-  // images are loaded or a global timeout fires. Uses a simple in-memory cache
-  // to avoid reloading the same URLs across mounts.
-  useEffect(() => {
-    // Only run preloading on first mount / when gridImages changes and initial load not done
-    if (initialLoadDone) return;
-    if (!Array.isArray(gridImages) || gridImages.length === 0) {
-      // Nothing to preload — mark as done quickly
-      setImagesPreloaded(true);
-      return;
-    }
-
-    if (!preloadCacheRef.current) preloadCacheRef.current = new Set<string>();
-    const cache = preloadCacheRef.current;
-
-    let cancelled = false;
-    let finished = false;
-
-    // Helper to load a single image with timeout
-    function loadOne(src: string, timeoutMs = 3000): Promise<void> {
-      return new Promise((resolve) => {
-        if (cache.has(src)) return resolve();
-        const img = new Image();
-        let to: number | null = null;
-        const done = (ok: boolean) => {
-          if (to) { window.clearTimeout(to); to = null; }
-          try { img.onload = img.onerror = null; } catch {}
-          if (ok) cache.add(src);
-          resolve();
-        };
-        img.onload = () => done(true);
-        img.onerror = () => {
-          console.warn('[drop] preload failed for', src);
-          done(false);
-        };
-        try {
-          img.src = src;
-        } catch (e) {
-          console.warn('[drop] preload exception for', src, e);
-          done(false);
-        }
-        to = window.setTimeout(() => { done(false); }, timeoutMs);
-      });
-    }
-
-    (async () => {
-      try {
-        const urls = gridImages.slice(0, 36).filter(Boolean).map(String);
-        const tasks: Promise<void>[] = [];
-        for (const u of urls) tasks.push(loadOne(u, 3000));
-
-        // Global timeout to avoid blocking forever (6s)
-        const global = new Promise<void>((res) => setTimeout(res, 6000));
-        await Promise.race([Promise.all(tasks).then(() => undefined), global.then(() => undefined)]);
-        if (!cancelled) {
-          finished = true;
-          setImagesPreloaded(true);
-        }
-      } catch (e) {
-        if (!cancelled) setImagesPreloaded(true);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [gridImages, initialLoadDone]);
 
   // Compute initial readiness: collage image, minigame config, and prize pool config
   useEffect(() => {
-    const ready = collageReady && minigameResolved && (!gameUrl || gameReady) && prizePoolLoaded && poolLevelServerLoaded && imagesPreloaded;
+    const ready = collageReady && minigameResolved && (!gameUrl || gameReady) && prizePoolLoaded && poolLevelServerLoaded;
     if (!initialLoadDone) {
       if (ready) {
         setInitialLoadDone(true);
@@ -2595,10 +1597,10 @@ export default function DropPage() {
       }
     }
   }, [collageReady, minigameResolved, gameUrl, gameReady, prizePoolLoaded, initialLoadDone, poolLevelServerLoaded]);
-  // cycle logo animation: 0..5 every 10s (6 variants)
+  // cycle logo animation: 0..5 every 20s (6 variants)
   const [logoAnim, setLogoAnim] = useState<number>(0);
   useEffect(() => {
-    const id = setInterval(() => setLogoAnim(v => (v + 1) % 6), 10000);
+    const id = setInterval(() => setLogoAnim(v => (v + 1) % 6), 20000);
     return () => clearInterval(id);
   }, []);
 
@@ -2686,43 +1688,7 @@ export default function DropPage() {
     setShowItems(false);
     setShowNotifications(false);
     setShowPool(false);
-    // also close the grid popup if open
-    try { setPopupLoading(false); setActiveTile(null); } catch {}
   };
-
-  // When the account modal is open we want to prevent background/page scrolling
-  // but still allow scrolling inside the modal itself. We do this by
-  // locking body scroll (overflow: hidden) and preventing touchmove on the
-  // document while the modal is open. We restore previous values on close.
-  useEffect(() => {
-    let prevOverflow: string | null = null;
-    let prevTouchAction: string | null = null;
-    function preventTouch(e: TouchEvent) {
-      // allow if the target is inside the modal scroll container
-      const modalScroll = document.querySelector('.account-modal-scroll') as Element | null;
-      if (modalScroll && modalScroll.contains(e.target as Node)) return;
-      e.preventDefault();
-    }
-
-    if (showAccount) {
-      try {
-        prevOverflow = document.body.style.overflow || null;
-        prevTouchAction = document.documentElement.style.touchAction || null;
-        document.body.style.overflow = 'hidden';
-        // prevent passive touchmove from scrolling the background on mobile
-        document.documentElement.style.touchAction = 'none';
-        document.addEventListener('touchmove', preventTouch, { passive: false });
-  } catch { /* ignore */ }
-    }
-
-    return () => {
-      try {
-        if (prevOverflow !== null) document.body.style.overflow = prevOverflow; else document.body.style.removeProperty('overflow');
-        if (prevTouchAction !== null) document.documentElement.style.touchAction = prevTouchAction; else document.documentElement.style.removeProperty('touch-action');
-        document.removeEventListener('touchmove', preventTouch as EventListener);
-      } catch (e) { /* ignore */ }
-    };
-  }, [showAccount]);
   
   // Adblock detector
   const [adblockDetected, setAdblockDetected] = useState<boolean>(false);
@@ -2826,18 +1792,8 @@ type ShopItem = { id: 'double_xp'|'double_tickets'|'ad_20_coins'; name: string; 
 
   useEffect(() => {
     if (!showItems) return;
-    // Start a 1s tick while the Items modal is open so the remaining timers update live.
-    // Prefer server-synced time if available (serverNowBaseRef + perf delta), else fallback to Date.now().
-    const update = () => {
-      const baseReady = serverNowBaseRef.current > 0 && perfBaseRef.current > 0;
-      const now = baseReady ? Math.floor(serverNowBaseRef.current + (performance.now() - perfBaseRef.current)) : Date.now();
-      setNowMsItems(now);
-      // also advance a tick counter for any derived effects (forces re-render)
-      setItemsTick((t) => (t + 1) % 1000000);
-    };
-    update();
-    const iv = setInterval(update, 1000);
-    return () => clearInterval(iv);
+    // Simply set time once when modal opens - no intervals!
+    setNowMsItems(Date.now());
   }, [showItems]);
   // Subscribe to Firestore for shop items
   useEffect(() => {
@@ -2923,7 +1879,7 @@ type ShopItem = { id: 'double_xp'|'double_tickets'|'ad_20_coins'; name: string; 
         console.error('[claimDaily] failed', res?.data);
       }
       // coins/streak/lastClaim werden via onSnapshot aktualisiert
-  } catch (e) {
+    } catch (e: any) {
       const rawMsg = e?.message || String(e);
       const msg = (typeof rawMsg === 'string') ? rawMsg.toLowerCase() : '';
       const code = (e?.code || e?.name || '').toString().toLowerCase();
@@ -3082,22 +2038,6 @@ function berlinYMD(ms: number) {
   const opt: Intl.DateTimeFormatOptions = { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' };
   return new Intl.DateTimeFormat('en-CA', opt).format(new Date(ms));
 }
-// Robustly compute the epoch ms of Berlin-local midnight (00:00) for a given Y-M-D.
-// We scan a ±36h window minute-by-minute to find the timestamp that corresponds
-// to Berlin 00:00 for the target date. This avoids hardcoding an offset (+02:00)
-// and correctly handles DST switches.
-function getBerlinMidnightMs(year: number, month: number, day: number): number | null {
-  const utcMid = Date.UTC(year, month - 1, day, 0, 0, 0);
-  const start = utcMid - 36 * 60 * 60 * 1000;
-  const end = utcMid + 36 * 60 * 60 * 1000;
-  for (let t = start; t <= end; t += 60 * 1000) {
-    const p = berlinPartsFromMs(t);
-    if (p.year === year && p.month === month && p.day === day && p.hour === 0 && p.minute === 0) {
-      return t;
-    }
-  }
-  return null;
-}
 function isBerlinYesterday(lcMs: number | null, nowMs: number) {
   if (!lcMs) return false;
   const DAY = 24 * 60 * 60 * 1000;
@@ -3209,7 +2149,7 @@ function currentDailyPos() {
         throw new Error(msg);
       }
       // Coins update via onSnapshot listener.
-  } catch (e) {
+    } catch (e: any) {
       const msg = e?.message || String(e);
       setBuyError(`Werbung fehlgeschlagen: ${msg}`);
     } finally {
@@ -3263,7 +2203,7 @@ function currentDailyPos() {
         };
         tx.update(userRef, { coins: coins - serverPrice, items, updatedAt: serverTimestamp() });
       });
-  } catch (e) {
+    } catch (e: any) {
       const code = e?.code || e?.name || 'unknown-error';
       const msg = e?.message || String(e);
       let hint = '';
@@ -3702,18 +2642,10 @@ function currentDailyPos() {
   //   { name: 'Mia', prize: '5€ Steam', time: '18:11' },
   // ];
   return (
-    <React.Fragment>
+    <>
     {loading && (
-      <div className="fixed inset-0 bg-black z-[9999]" role="status" aria-live="polite">
-        <div className="relative w-full h-full flex items-center justify-center">
-          {/* Centered Drop logo */}
-          <img src="/logo.png" alt="DROP lädt" className="drop-loader-logo select-none pointer-events-none" />
-
-          {/* Bottom-centered spinner */}
-          <div className="loader-bottom-spinner pointer-events-none" aria-hidden="true">
-            <div className="w-12 h-12 border-4 border-white/40 border-t-white rounded-full animate-spin" />
-          </div>
-        </div>
+      <div className="fixed inset-0 bg-black flex items-center justify-center z-[9999]">
+        <div className="w-12 h-12 border-4 border-white/40 border-t-white rounded-full animate-spin" />
       </div>
     )}
   
@@ -3724,124 +2656,12 @@ function currentDailyPos() {
     <img src="/icons/free-coins.svg" alt="" />
     <img src="/icons/double_tickets.svg" alt="" />
     <img src="/adblock-warning.png" alt="" />
-    {/* Preload all local avatar presets to prevent popping */}
-    <img src="/profile-icon.png" alt="" />
-    <img src="/pfpfs/preset1.png" alt="" />
-    <img src="/pfpfs/preset2.png" alt="" />
-    <img src="/pfpfs/preset3.png" alt="" />
-    <img src="/pfpfs/preset4.png" alt="" />
-    <img src="/pfpfs/preset5.png" alt="" />
-    <img src="/pfpfs/preset6.png" alt="" />
   </div>
-
-  {/* MODAL PRELOADING - Render modal structures invisibly to cache DOM and reduce stuttering */}
-  <div style={{ 
-    position: 'fixed', 
-    left: '-9999px', 
-    top: '-9999px', 
-    visibility: 'hidden', 
-    pointerEvents: 'none',
-    zIndex: -1 
-  }} aria-hidden="true">
-    {/* Preload Notifications Modal structure */}
-    <div className="fixed inset-0 z-40 flex items-center justify-center opacity-100 pointer-events-auto">
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[560px] p-8 md:p-10 flex flex-col items-center justify-center">
-        <img src="/icons/zzz.svg" alt="Keine Benachrichtigungen" className="mb-4 h-28 w-28 object-contain select-none pointer-events-none" />
-        <h3 className="text-xl font-bold mb-2">Keine Benachrichtigungen</h3>
-        <p className="text-gray-600 text-center">Du hast alle Benachrichtigungen gelesen!</p>
-      </div>
-    </div>
-
-    {/* Preload Items Modal structure */}
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,480px)] max-h-[80vh] px-6 pb-6 pt-12 overflow-y-auto">
-        <div className="space-y-3">
-          <div className="p-4 border rounded-2xl flex items-center justify-between gap-3 bg-white border-black/10">
-            <div className="flex items-center gap-3 min-w-0">
-              <img src="/icons/free-coins.svg" alt="" width={40} height={40} className="shrink-0" />
-              <div className="min-w-0">
-                <div className="font-semibold truncate">Sample Item</div>
-                <div className="text-sm text-gray-500 truncate">Sample description</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Preload Account/Profile Modal structure */}
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="relative bg-transparent text-black w-[min(92vw,480px)] max-h-[85vh] p-0 overflow-visible">
-        <div className="absolute -top-3 -right-3">
-    {/* close button removed - rely on overlay click/programmatic close */}
-        </div>
-        <div className="w-full max-h-[calc(85vh-2rem)] overflow-y-auto">
-          <div className="bg-white rounded-xl p-6">
-            <div className="text-center">Account Panel Preload</div>
-            <div className="mt-4 space-y-4">
-              <input type="text" className="w-full px-3 py-2 border rounded" placeholder="Username" />
-              {/* Avatar Grid Preload - load all local preset avatars */}
-              <div className="perma-scrollbar overflow-x-scroll -mx-3 px-3 pb-1 pt-0.5">
-                <div className="flex gap-3 pr-1">
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset1.png" alt="Avatar Preset 1" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset2.png" alt="Avatar Preset 2" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset3.png" alt="Avatar Preset 3" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset4.png" alt="Avatar Preset 4" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset5.png" alt="Avatar Preset 5" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset6.png" alt="Avatar Preset 6" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                </div>
-              </div>
-              <button className="w-full py-2 bg-blue-500 text-white rounded">Save Profile</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Preload Daily Login Bonus Modal structure */}
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[560px] p-8 md:p-10 flex flex-col items-center justify-center">
-        <img src="/icons/coin.svg" alt="Daily Bonus" className="mb-4 h-28 w-28 object-contain select-none pointer-events-none" />
-        <h3 className="text-xl font-bold mb-2">Daily Login Bonus</h3>
-        <p className="text-gray-600 text-center">Your daily rewards are waiting!</p>
-      </div>
-    </div>
-  </div>
-
-
   
   {/* Sticky Header Elements */}
-  <div ref={null} className={`fixed top-0 left-0 right-0 z-60 topbar-wrapper ${hideTopOnFooter ? 'top-hidden' : 'top-visible'}`} style={{ backfaceVisibility: 'hidden', willChange: 'transform', transform: 'translateZ(0)' }}>
-  {/* Tiny scroll banner */}
-  <div className={`h-6 ${hideTopOnFooter ? 'bg-transparent' : 'bg-black'} text-white`} style={{ backfaceVisibility: 'hidden' }}>
+  <div ref={null} className={`fixed top-0 left-0 right-0 z-50 transition-opacity duration-300 ${hideTopOnFooter ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} style={{ backfaceVisibility: 'hidden', willChange: 'transform', transform: 'translateZ(0)' }}>
+      {/* Tiny scroll banner */}
+      <div className="h-6 bg-black text-white" style={{ backfaceVisibility: 'hidden' }}>
         <div ref={smallTickerContainerRef} className="small-ticker-wrap w-full h-full">
           <div className="small-ticker-track relative h-full">
             <span ref={smallTickerSpanRef} className="small-ticker-text">{smallTicker}</span>
@@ -3849,8 +2669,8 @@ function currentDailyPos() {
         </div>
       </div>
       
-  {/* Combined sticky header */}
-  <div className={`h-14 ${hideTopOnFooter ? 'bg-transparent' : 'bg-black'}`} style={{ backfaceVisibility: 'hidden' }}>
+      {/* Combined sticky header */}
+      <div className="h-14 bg-black" style={{ backfaceVisibility: 'hidden' }}>
         {/* Left: Logo */}
         <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10">
           <img src="/logo.png" alt="DROP" className={`h-4 w-auto select-none drop-logo drop-anim-${logoAnim}`} />
@@ -3933,7 +2753,7 @@ function currentDailyPos() {
           )}
           <button onClick={() => { closeAllModals(); setShowAccount(true); }} aria-label="Account">
             <img
-              src={uid ? (selectedLocalAvatar || profilePhoto || "/profile-icon.png") : "/profile-icon.png"}
+              src={uid && profilePhoto ? profilePhoto : "/profile-icon.png"}
               alt="Profil"
               className="h-8 w-8 select-none cursor-pointer rounded-full object-cover"
             />
@@ -3941,7 +2761,9 @@ function currentDailyPos() {
         </div>
       </div>
     </div>
-    <div className="relative w-screen h-screen bg-black text-white flex flex-col overflow-hidden scroll-snap-section">
+    
+  <div ref={scrollContainerRef} className="h-screen w-screen overflow-y-scroll overflow-x-hidden snap-y snap-mandatory pt-20">
+      <div className="relative h-screen w-screen bg-black text-white flex flex-col overflow-hidden snap-start snap-always">
       {/* Animated red gradient over black */}
       <div
         aria-hidden
@@ -3972,9 +2794,6 @@ function currentDailyPos() {
         <div className="fixed inset-0 z-40 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/80" />
           <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[640px] p-6">
-            <div className="absolute -top-3 -right-3">
-              {/* close button removed - rely on overlay click/programmatic close */}
-            </div>
             <img
               src="/adblock-warning.png"
               alt="Adblock Warning"
@@ -3993,8 +2812,6 @@ function currentDailyPos() {
         </div>
       )}
 
-      {/* test grid removed from here and moved to the red second screen */}
-
       {/* Notifications Modal */}
       {showNotifications && (
         <div className="fixed inset-0 z-40 flex items-center justify-center opacity-100 pointer-events-auto">
@@ -4012,7 +2829,7 @@ function currentDailyPos() {
                 el.outerHTML = '<div style="font-size:48px;line-height:1">💤</div>';
               }}
             />
-            {/* close button removed - rely on overlay click/programmatic close */}
+            <button onClick={() => setShowNotifications(false)} className="absolute top-3 right-3 text-black/60 hover:text-black">✕</button>
             <div className="text-lg font-semibold">Keine neuen Nachrichten</div>
             <div className="mt-1 text-sm text-black/60">Du bist up to date</div>
           </div>
@@ -4030,21 +2847,13 @@ function currentDailyPos() {
         />
       )}
       {/* Main viewport content: ads + center column with proportional layout */}
-      <div className="relative z-10 flex-1 w-full px-4 overflow-hidden flex justify-between items-center" style={{paddingTop: '5rem'}}>
+      <div className="relative z-10 flex-1 w-full px-4 overflow-hidden flex justify-between items-center">
         {/* Left panel: Yesterday's winners */}
         <aside className="hidden xl:flex w-[300px] flex-col gap-4 self-center -mr-4">
           <div className="w-full rounded-2xl border border-white/15 bg-white/5 backdrop-blur-[2px] text-white p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
             {/* Datum und Uhrzeit der Losung */}
             <div className="text-xs text-white/60 mb-1.5 font-medium">
               {(() => {
-                // If we have a loaded winners day (YYYY-MM-DD) show that, otherwise fallback to yesterday
-                if (latestWinnerDay) {
-                  const parts = latestWinnerDay.split('-'); // YYYY-MM-DD
-                  if (parts.length === 3) {
-                    const [y, m, d] = parts;
-                    return `${d}.${m}.${y} • 20:00`;
-                  }
-                }
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
                 const berlinTime = new Intl.DateTimeFormat('de-DE', {
@@ -4245,16 +3054,6 @@ function currentDailyPos() {
               }}
             />
           </div>
-          <div className="w-full flex items-center justify-center mt-2">
-            <button
-              type="button"
-              onClick={() => { try { window.open('/Teilnahmebedingungen', '_blank', 'noopener'); } catch { window.open('/Teilnahmebedingungen', '_blank'); } }}
-              className="text-white text-sm underline-offset-2 hover:underline"
-              aria-label="Teilnahmebedingungen ansehen"
-            >
-              Es gelten unsere Teilnahmebedingungen
-            </button>
-          </div>
           </div>
         </div>
 
@@ -4276,7 +3075,9 @@ function currentDailyPos() {
         <div className="fixed inset-0 z-40 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/80" onClick={() => setShowPool(false)} />
           <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,980px)] max-h-[84vh] p-4 sm:p-6 overflow-hidden">
-            {/* close button removed - rely on overlay click/programmatic close */}
+            <div className="flex items-start justify-end gap-3">
+              <button onClick={() => setShowPool(false)} className="text-black/60 hover:text-black">✕</button>
+            </div>
             {/* Centered level bar below header: 50% modal width */}
             {(() => {
               const pct = poolProgress.pct;
@@ -4341,7 +3142,9 @@ function currentDailyPos() {
       <div className={`fixed inset-0 z-40 flex items-center justify-center ${showDaily ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
         <div className="absolute inset-0 bg-black/80" onClick={() => setShowDaily(false)} />
         <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(78vw,720px)] max-h-[86vh] p-4 sm:p-5 overflow-hidden">
-            {/* close button removed - rely on overlay click/programmatic close */}
+            <div className="sticky top-0 z-10 bg-white pt-1 pb-2 -mx-4 sm:-mx-5 px-4 sm:px-5 flex items-start justify-end">
+              <button onClick={() => setShowDaily(false)} className="text-black/60 hover:text-black">✕</button>
+            </div>
             {/* scroll container */}
             <div className="mt-2 overflow-y-auto" style={{ maxHeight: '70vh' }}>
               {/* Streak progress 1–30 */}
@@ -4437,9 +3240,10 @@ function currentDailyPos() {
         <div className="fixed inset-0 z-40 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/80" onClick={() => { if (!mustComplete) setShowAccount(false); }} />
           <div className="relative bg-transparent text-black w-[min(92vw,480px)] max-h-[85vh] p-0 overflow-visible">
-            {/* close button removed - rely on overlay click/programmatic close */}
-            <div className="w-full max-h-[calc(85vh-2rem)] overflow-y-auto account-modal-scroll">
-              <AccountPanel embedded />
+            <button onClick={() => { if (!mustComplete) setShowAccount(false); }} className="absolute top-3 right-3 z-10 text-white/70 hover:text-white">✕</button>
+            <div className="w-full max-h-[calc(85vh-2rem)] overflow-y-auto">
+              {/* <AccountPanel embedded /> */}
+              <div className="text-center p-8">Account Panel temporär deaktiviert</div>
             </div>
           </div>
         </div>
@@ -4449,7 +3253,7 @@ function currentDailyPos() {
         <div className="fixed inset-0 z-40 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/80" onClick={() => setShowItems(false)} />
           <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,480px)] max-h-[80vh] px-6 pb-6 pt-12 overflow-y-auto">
-          {/* close button removed - rely on overlay click/programmatic close */}
+          <button onClick={() => setShowItems(false)} className="absolute top-3 right-3 text-black/60 hover:text-black">✕</button>
           <div className="space-y-3">
             {buyError && <div className="p-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded">{buyError}</div>}
             {shopItems.filter(it => (it.active ?? true)).map((it) => {
@@ -4537,370 +3341,298 @@ function currentDailyPos() {
           </div>
         </div>
       )}
-      {/* Styles temporarily removed to fix build error */}
+      {/* Styles temporarily removed to fix build */}
+      {/* CSS content removed from here through line with Confetti */}
+        }
+        .active-glow::after{
+          content:"";
+          position:absolute; inset:-2px;
+          border-radius: 1rem; /* match rounded-2xl */
+          box-shadow: 0 0 0 0 rgba(16,185,129,0.0), 0 0 0 0 rgba(16,185,129,0.0), 0 0 0 0 rgba(16,185,129,0.0);
+          pointer-events:none;
+          animation: activePulse 1.8s ease-in-out infinite;
+        }
+        @keyframes activePulse {
+          0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.55), 0 0 24px 0 rgba(16,185,129,0.35), inset 0 0 0 0 rgba(16,185,129,0.0); }
+          50%  { box-shadow: 0 0 0 6px rgba(16,185,129,0.00), 0 0 32px 4px rgba(16,185,129,0.45), inset 0 0 0 0 rgba(16,185,129,0.0); }
+          100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.55), 0 0 24px 0 rgba(16,185,129,0.35), inset 0 0 0 0 rgba(16,185,129,0.0); }
+        }
+        /* stronger visible animation */
+        .active-anim { animation: activeBgPulse 1.4s ease-in-out infinite; }
+        @keyframes activeBgPulse { 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.02); } }
+        
+        /* Smooth circular roll animation for loading circle */
+        @keyframes gravityRoll {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        /* Performance test spinner */
+        .test-spinner {
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-left: 2px solid #ffffff;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .active-bling{ position: relative; }
+        .active-bling::before{
+          content:""; position:absolute; inset:0; border-radius:1rem; /* match rounded-2xl */ pointer-events:none;
+          background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.6) 45%, transparent 90%);
+          transform: translateX(-120%);
+          animation: ctaShine 2.4s ease-in-out infinite;
+        }
+        @keyframes holoBorder { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+        .no-scrollbar { scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+  // removed generic .ticker-* rules (small-ticker uses its own styles)
+        :global(.animate-cta-shine) { position: relative; overflow: hidden; }
+        :global(.animate-cta-shine)::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.6) 45%, transparent 90%);
+          transform: translateX(-120%);
+          animation: ctaShine 2.4s ease-in-out infinite;
+        }
+        /* --- skeleton placeholders for Prize Pool --- */
+        :global(.skeleton-shine){
+          position: relative;
+          background: linear-gradient(90deg, rgba(0,0,0,0.06) 25%, rgba(0,0,0,0.12) 37%, rgba(0,0,0,0.06) 63%);
+          background-size: 400% 100%;
+          animation: skeletonLoading 1.1s ease-in-out infinite;
+        }
+        :global(.skeleton-shine\/soft){
+          position: relative;
+          background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 37%, rgba(0,0,0,0.04) 63%);
+          background-size: 400% 100%;
+          animation: skeletonLoading 1.1s ease-in-out infinite;
+        }
+        @keyframes skeletonLoading {
+          0% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        /* 3D tilt for the hologram card */
+        :global(.holo .card) { transform: rotateX(calc(var(--rx,0) * 1deg)) rotateY(calc(var(--ry,0) * 1deg)); transform-style: preserve-3d; transition: transform 120ms ease; }
+        :global(.gift .gift-card){ transform: rotateX(calc(var(--rx,0) * 1deg)) rotateY(calc(var(--ry,0) * 1deg)); transform-style: preserve-3d; transition: transform 120ms ease; }
+        :global(.gift .parallax){
+          transform: translate3d(var(--tx,0px), var(--ty,0px), var(--dz,0));
+          transition: transform 120ms ease;
+        }
+        @keyframes holoBorder { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+        .no-scrollbar { scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+  // removed duplicate generic .ticker-* rules
+        :global(.animate-cta-shine) { position: relative; overflow: hidden; }
+        :global(.animate-cta-shine)::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.6) 45%, transparent 90%);
+          transform: translateX(-120%);
+          animation: ctaShine 2.4s ease-in-out infinite;
+        }
+        /* --- scanlines overlay --- */
+        :global(.scanlines){
+          pointer-events:none;
+          background-image:repeating-linear-gradient(to bottom, rgba(255,255,255,0.6) 0 1px, transparent 1px 3px);
+          background-size:100% 3px;
+          opacity:0.07;
+          animation:scanDrift 12s linear infinite;
+        }
+        @keyframes scanDrift{0%{background-position:0 0}100%{background-position:0 12px}}
+        @media (prefers-reduced-motion: reduce){ :global(.scanlines){ animation:none !important; } }
+        /* --- drop logo animation --- */
+        :global(.drop-logo) {
+          transform-origin: left center;
+          backface-visibility: hidden;
+          will-change: transform;
+          transform: translateZ(0);
+        }
+        /* six variants; each animates early, then idles */
+        :global(.drop-anim-0) { animation: dropLogoA 20s cubic-bezier(.22,.61,.36,1) infinite; }
+        :global(.drop-anim-1) { animation: dropLogoB 20s cubic-bezier(.22,.61,.36,1) infinite; }
+        :global(.drop-anim-2) { animation: dropLogoC 20s cubic-bezier(.22,.61,.36,1) infinite; }
+        :global(.drop-anim-3) { animation: dropLogoD 20s cubic-bezier(.22,.61,.36,1) infinite; }
+        :global(.drop-anim-4) { animation: dropLogoE 20s cubic-bezier(.22,.61,.36,1) infinite; }
+        :global(.drop-anim-5) { animation: dropLogoG 20s cubic-bezier(.22,.61,.36,1) infinite; }
+
+        @keyframes dropLogoA {
+          0%   { transform: translateY(0) rotate(0deg) scale(1); }
+          2%   { transform: translateY(-1.5px) rotate(-2deg) scale(1.04); }
+          4%   { transform: translateY(0) rotate(0deg) scale(1); }
+          6%   { transform: translateY(1.5px) rotate(2deg) scale(1.03); }
+          8%   { transform: translateY(0) rotate(0deg) scale(1); }
+          100% { transform: translateY(0) rotate(0deg) scale(1); }
+        }
+        @keyframes dropLogoB {
+          0%   { transform: translateX(0) skewX(0deg) scale(1); }
+          2%   { transform: translateX(2px) skewX(6deg)  scale(1.03); }
+          4%   { transform: translateX(-1px) skewX(-4deg) scale(1.02); }
+          6%   { transform: translateX(1px) skewX(2deg)  scale(1.01); }
+          8%   { transform: translateX(0) skewX(0deg)  scale(1); }
+          100% { transform: translateX(0) skewX(0deg)  scale(1); }
+        }
+        @keyframes dropLogoC {
+          0%   { transform: scale(1) rotate(0deg); filter: brightness(1) saturate(1) drop-shadow(0 0 0 rgba(255,255,255,0)); }
+          2.5% { transform: scale(1.06) rotate(0.5deg); filter: brightness(1.6) saturate(1.2) drop-shadow(0 0 10px rgba(255,255,255,0.6)); }
+          5%   { transform: scale(1) rotate(0deg);   filter: brightness(1) saturate(1) drop-shadow(0 0 0 rgba(255,255,255,0)); }
+          100% { transform: scale(1) rotate(0deg);   filter: brightness(1) saturate(1) drop-shadow(0 0 0 rgba(255,255,255,0)); }
+        }
+        @keyframes dropLogoD {
+          0%   { transform: translateY(0) scale(1); filter: brightness(1); }
+          3%   { transform: translateY(-3px) scale(1.06); filter: brightness(1.3); }
+          6%   { transform: translateY(0) scale(1.02); }
+          9%   { transform: translateY(-2px) scale(1.04); }
+          12%  { transform: translateY(0) scale(1); }
+          100% { transform: translateY(0) scale(1); }
+        }
+        @keyframes dropLogoE {
+          0%   { transform: rotate(0deg) scale(1); filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
+          2.5% { transform: rotate(-2deg) scale(1.03); filter: drop-shadow(0 0 8px rgba(255,255,255,0.5)); }
+          5%   { transform: rotate(2deg) scale(1.02); }
+          7.5% { transform: rotate(0deg) scale(1); }
+          100% { transform: rotate(0deg) scale(1); }
+        }
+        @keyframes dropLogoG {
+          0%   { filter: blur(0px) contrast(1) saturate(1); }
+          2%   { filter: blur(1.2px) contrast(1.12) saturate(1.18); }
+          4%   { filter: blur(0px) contrast(1.06) saturate(1.06); }
+          6%   { filter: blur(0px) contrast(1) saturate(1); }
+          100% { filter: blur(0px) contrast(1) saturate(1); }
+        }
+
+        /* Small ticker animation */
+        :global(.small-ticker-wrap) { 
+          position: relative; 
+          overflow: hidden;
+          backface-visibility: hidden;
+          will-change: transform;
+        }
+        :global(.small-ticker-track) { 
+          display: inline-block;
+          white-space: nowrap;
+          /* RAF-driven: disable CSS animation to avoid conflicts */
+          animation: none !important;
+          backface-visibility: hidden;
+          will-change: transform;
+          transform: translateZ(0);
+          position: relative;
+          height: 100%;
+        }
+        /* keyframes removed: ticker is RAF-driven */
+
+        :global(.small-ticker-text) {
+          position: absolute;
+          left: 0;
+          top: 50%;
+          transform: translateY(-50%);
+          white-space: nowrap;
+          will-change: transform;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          :global(.drop-logo), :global(.drop-anim-0), :global(.drop-anim-1), :global(.drop-anim-2), :global(.drop-anim-3), :global(.drop-anim-4), :global(.drop-anim-5) { animation: none !important; }
+          :global(.small-ticker-track) { animation: none !important; }
+        */}
+      {/* Styles end */}
       {/* Confetti burst overlay */}
       {confettiAt !== 0 && (
         <ConfettiBurst onDone={() => { setConfettiAt(0); }} />
       )}
       
       {/* Second page below: full-screen black */}
-  <section className="relative w-screen h-screen bg-black text-white scroll-snap-section below-topbar">
-    {/* --- same animated red gradient over black as first section --- */}
-    <div
-      aria-hidden
-      className="absolute inset-0 z-0 pointer-events-none"
-      style={{
-        backgroundImage: `
-  radial-gradient(2000px 1500px at 20% -5%,   rgba(255,60,60,0.44), rgba(0,0,0,0) 78%),
-  radial-gradient(2200px 1600px at 80% 5%,    rgba(220,40,40,0.38), rgba(0,0,0,0) 75%),
-  radial-gradient(2400px 1800px at 50% 115%,  rgba(244,63,94,0.40), rgba(0,0,0,0) 76%),
-  radial-gradient(1600px 1200px at 10% 85%,   rgba(255,70,70,0.40), rgba(0,0,0,0) 76%),
-  radial-gradient(1800px 1300px at 90% 80%,   rgba(235,50,60,0.36), rgba(0,0,0,0) 76%),
-  radial-gradient(2000px 1400px at 50% 40%,   rgba(255,0,0,0.34),   rgba(0,0,0,0) 82%),
-  radial-gradient(1500px 1100px at 5% 50%,    rgba(255,80,80,0.34), rgba(0,0,0,0) 75%),
-  /* two mega-blobs left/right to stabilize ~50% red coverage */
-  radial-gradient(3000px 2200px at -10% 50%,  rgba(220,30,30,0.06), rgba(0,0,0,0) 82%),
-  radial-gradient(3000px 2200px at 110% 50%,  rgba(220,30,30,0.06), rgba(0,0,0,0) 82%)
-`,
-        backgroundSize: '160% 160%, 160% 160%, 160% 160%, 170% 170%, 170% 170%, 180% 180%, 160% 160%, 200% 200%, 200% 200%',
-        backgroundPosition: '0% 0%, 100% 0%, 50% 100%, 10% 85%, 90% 80%, 50% 40%, 5% 50%, 0% 50%, 100% 50%',
-        animation: 'gradientShift 28s ease-in-out infinite alternate'
-      }}
-    />
-    {/* Global scanline overlay */}
-    <div aria-hidden className="absolute inset-0 z-[1] pointer-events-none scanlines" />
-
-    {/* --- Test grid placed on the red second screen --- */}
-  <div className="flex items-center justify-center px-4 relative z-20" style={{ height: 'calc(100vh - var(--topbar-height))' }}>
-      {/* larger container and vertical centering */}
-      <div className="w-full max-w-[1200px] flex items-center justify-center">
-        <div className="mx-auto">
-              {(() => {
-                const n = Math.max(0, gridCount || 0);
-                if (n === 0) return <div className="text-center text-white/80">No tiles (use window.__drop_setGridCount(n))</div>;
-                // Prefer 3 columns when possible. Use Tailwind utility classes for reliable output.
-                const cols = n === 4 ? 2 : (n >= 3 ? 3 : Math.max(1, n));
-                // Map to static Tailwind classes so JIT sees them
-                const colsClassMap: Record<number, string> = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3' };
-                const gridColsClass = colsClassMap[cols] || 'grid-cols-3';
-                const gapValue = '1.1875rem';
-
-                // Build item elements (tiles reduced by 20%)
-                
-                const items = new Array(n).fill(0).map((_, i) => (
-                  <div
-                    key={i}
-                    onClick={() => { if (!uid) { closeAllModals(); setShowAccount(true); return; } setPopupLoading(true); setActiveTile(i); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!uid) { closeAllModals(); setShowAccount(true); return; } setPopupLoading(true); setActiveTile(i); } }}
-                    role="button"
-                    tabIndex={0}
-                    className="relative cursor-pointer group transform transition duration-200 ease-out hover:scale-105 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                  >
-                    <div style={{ width: 'clamp(11.52rem, 17.28vw, 19.2rem)', aspectRatio: '1/1' }} className="relative">
-                      <CardFrame svg="/card-frame.svg" aspect="1/1" safePadding="0">
-                        <div className="relative w-full h-full rounded-2xl overflow-visible">
-                          {/* subtle highlight overlay on hover/focus */}
-                          <div className="absolute inset-0 rounded-2xl pointer-events-none bg-white/6 opacity-0 group-hover:opacity-70 group-focus:opacity-70 transition-opacity duration-200" />
-                          <img
-                            src={(gridItems[i]?.src) || gridImages[i] || '/error-frame.svg'}
-                            alt={`Drop ${i + 1}`}
-                            className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none rounded-2xl"
-                            onError={(e) => {
-                              try {
-                                const el = e.currentTarget as HTMLImageElement;
-                                console.warn('[drop] image load failed for', el.src);
-                                el.onerror = null;
-                                el.src = '/error-frame.svg';
-                              } catch {}
-                            }}
-                          />
-                          {/* Countdown (top-right) */}
-                          <TileCountdown toMs={gridItems[i]?.toMs} />
-                        </div>
-                      </CardFrame>
-                    </div>
-                  </div>
-                ));
-
-                // Chunk into rows of `cols` and render full rows as grid, last (incomplete) row as centered flex
-                const rows: React.ReactNode[][] = [];
-                for (let i = 0; i < items.length; i += cols) rows.push(items.slice(i, i + cols));
-
-                return (
-                  <div className="mx-auto" style={{ display: 'flex', flexDirection: 'column', gap: gapValue }} aria-hidden>
-                    {/* Headline space */}
-                    <div style={{ paddingTop: '1.25rem', paddingLeft: '0.5rem', paddingRight: '0.5rem' }}>
-                      <div className="flex items-center justify-center gap-3 flex-col">
-                        <div>
-                          <img
-                            src="/vault-title.svg"
-                            alt="Drop Vault"
-                            className="vault-title opacity-100"
-                            style={{ width: 'min(52vw, 520px)', height: 'auto', opacity: 1 }}
-                          />
-                          <p className="text-sm text-white opacity-100 mt-1 text-center"
-                             style={{ color: '#ffffff', opacity: 1 }}>
-                            Secure your drops and track claimed rewards
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    {rows.map((row, idx) => (
-                      row.length === cols ? (
-                        <div key={idx} className={`grid ${gridColsClass} place-items-center`} style={{ gap: gapValue }}>
-                          {row}
-                        </div>
-                      ) : (
-                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: `repeat(${row.length}, auto)`, gap: gapValue, width: 'max-content', marginLeft: 'auto', marginRight: 'auto' }}>
-                          {row}
-                        </div>
-                      )
-                    ))}
-                  </div>
-                );
-              })()}
-        </div>
-      </div>
-    </div>
-  </section>
-
-  {/* Modal for active tile (opens when a grid tile is clicked) */}
-  {activeTile !== null && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4" onClick={() => { setPopupLoading(false); setActiveTile(null); }}>
-      <div className="max-w-[420px] w-full" onClick={(e) => e.stopPropagation()}>
-  <CardFrame svg="/card-frame.svg" aspect="5/6" safePadding="0">
-    <div ref={modalContentRef} className="relative w-full h-full rounded-2xl overflow-visible bg-white">
-            {popupLoading ? (
-              <div className="flex items-center justify-center w-full h-full">
-                <div className="w-12 h-12 border-4 border-gray-200 border-t-black rounded-full animate-spin" aria-hidden />
-              </div>
-            ) : (
-              <div className="flex flex-col h-full">
-                <div className="flex-1 px-6 pt-6 pb-4 overflow-y-auto">
-                  {/* Modal top-right countdown pill */}
-                  <div className="absolute top-3 right-3 z-20">
-                    <TileCountdown toMs={gridItems[activeTile]?.toMs} />
-                  </div>
-                  <h3 className="text-3xl font-extrabold text-black leading-tight mt-8">
-                    {(gridItems[activeTile] as any)?.headline ?? (gridItems[activeTile] as any)?.title ?? `Headline`}
-                  </h3>
-                  <p className="mt-3 text-sm text-black/70 whitespace-pre-line break-words">
-                    {(gridItems[activeTile] as any)?.content ?? (gridItems[activeTile] as any)?.subtitle ?? `Beschreibung`}
-                  </p>
-                  {/* spacer: eight blank lines */}
-                  <div aria-hidden>
-                    <br />
-                    <br />
-                    <br />
-                    <br />
-                    <br />
-                    <br />
-                    <br />
-                  </div>
-                    {/* Participation counts are shown in the speech bubble above the button */}
-                </div>
-
-                <div className="px-6 pb-6">
-                  <div className="absolute left-6 right-6 bottom-2 flex flex-col items-center">
-                  <button
-                    ref={participateButtonRef}
-                    type="button"
-                    aria-label={`Teilnehmen an Drop ${activeTile !== null ? activeTile + 1 : ''}`}
-                    disabled={!canParticipate || popupBusy}
-                    onClick={async (ev) => {
-                      ev?.stopPropagation();
-                      if (!canParticipate) {
-                        if (nextAllowedMs) {
-                          try {
-                            const p = berlinPartsFromMs(nextAllowedMs);
-                            alert(`Nächstes Teilnehmen möglich: ${String(p.hour).padStart(2,'0')}:${String(p.minute).padStart(2,'0')} (Berlin)`);
-                          } catch {
-                            alert('Noch gesperrt');
-                          }
-                        } else {
-                          alert('Noch gesperrt');
-                        }
-                        return;
-                      }
-                      setPopupBusy(true);
-                      try {
-                        const item = gridItems[activeTile ?? -1];
-                        if (!item) { alert('Ungültiger Eintrag'); return; }
-                        let entryId = (item as any)?.id ?? (item as any)?.__id ?? (item as any)?.name ?? (item as any)?.title ?? null;
-                        if (!entryId) {
-                          if (typeof activeTile === 'number') entryId = `drop-item-${activeTile}`;
-                          else { alert('Ungültiger Eintrag'); return; }
-                        }
-                        try { console.log('[drop] calling enterDrop', { entryId, item, activeTile }); } catch { }
-                        let res: any = null;
-                        try {
-                          const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'enterDrop');
-                          res = await fn({ entryId });
-                        } catch (err: any) {
-                          console.warn('[drop] httpsCallable failed, will try HTTP fallback', err?.message || err);
-                          try {
-                            const auth = getAuth();
-                            const user = auth.currentUser;
-                            if (!user) throw new Error('no-auth-user');
-                            const idToken = await user.getIdToken();
-                            const url = `/api/proxy/enterDrop`;
-                            const fetchRes = await fetch(url, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-                              body: JSON.stringify({ entryId }),
-                            });
-                            const body = await fetchRes.json();
-                            res = { data: body };
-                          } catch (err2: any) {
-                            console.error('[drop] HTTP fallback failed', err2);
-                            throw err2;
-                          }
-                        }
-                        if (res?.data?.ok) {
-                          alert(`Teilnahme erfolgreich (${res.data.count})`);
-                          setActiveTile(null);
-                            // if server returned remainingCoins, update local state
-                            if (typeof res.data.remainingCoins === 'number') {
-                              setCoins(res.data.remainingCoins);
-                            }
-                        } else {
-                            const serverMsg = String(res?.data?.message || 'unknown');
-                            if (serverMsg.includes('insufficient-coins')) {
-                              alert('Nicht genügend Coins. Teilnahme kostet 10 Coins.');
-                            } else {
-                              alert(`Fehler: ${serverMsg}`);
-                            }
-                        }
-                      } catch (err) {
-                        console.error('enterDrop failed', err);
-                        alert(`Fehler: ${String(err)}`);
-                      } finally {
-                        setPopupBusy(false);
-                      }
-                    }}
-                    className={`w-full py-4 rounded-2xl text-lg font-bold shadow-lg transition-opacity relative flex items-center justify-center ${!canParticipate || popupBusy ? 'bg-black/70 cursor-not-allowed text-white/90' : 'bg-black text-white hover:opacity-95'}`}
-                    style={{ boxShadow: '0 8px 20px rgba(0,0,0,0.35)' }}
-                  >
-                      {canParticipate && !popupBusy && (
-                        <span className="absolute left-4 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 pointer-events-none">
-                          <img src="/icons/coin.svg" alt="Coins" className="w-5 h-5" />
-                          <span className="text-white font-semibold tabular-nums">10</span>
-                        </span>
-                      )}
-                      <div className="text-white font-semibold">
-                        {popupBusy ? 'Sende...' : (!canParticipate && countdownMs !== null ? `Nächste Teilnahme in ${formatCountdown(countdownMs)}` : 'Teilnehmen')}
-                      </div>
-                  </button>
-                  {/* Speech bubble positioned above the button using the SVG background */}
-                  <div
-                    ref={bubbleRef}
-                    aria-hidden
-                    style={bubbleStyle ? { position: 'absolute', ...bubbleStyle, zIndex: 40, pointerEvents: 'none' } : { position: 'absolute', bottom: '80px', right: '12px', zIndex: 40, pointerEvents: 'none' }}
-                  >
-                    <div style={{ position: 'relative', pointerEvents: 'none', filter: 'drop-shadow(0 6px 18px rgba(0,0,0,0.22))' }}>
-                      <div
-                        role="img"
-                        aria-hidden
-                        style={{
-                          display: 'inline-block',
-                          backgroundImage: `url('/speech-bubble.svg')`,
-                          backgroundRepeat: 'no-repeat',
-                          backgroundSize: '100% 100%',
-                          padding: '12px 28px 22px',
-                          maxWidth: '72vw',
-                          whiteSpace: 'nowrap',
-                          textAlign: 'center',
-                          boxSizing: 'border-box'
-                        }}
-                      >
-                        <div className="text-sm text-white font-semibold" style={{ lineHeight: 1.1, textShadow: '0 1px 0 rgba(0,0,0,0.2)' }}>
-                          {uid ? (myParticipationCount === null ? 'Lade…' : `Du bist ${myParticipationCount}× dabei`) : 'Bitte einloggen, um zu sehen, wie oft du teilgenommen hast'}
-                        </div>
-                      </div>
-                    </div>
-                    </div>
-                    <div className="mt-6 md:mt-8">
-                      <button
-                        type="button"
-                        onClick={() => { try { router.push('/Teilnahmebedingungen'); } catch { window.location.href = '/Teilnahmebedingungen'; } }}
-                        className="text-black text-[12px] text-center underline-offset-2 hover:underline"
-                        aria-label="Teilnahmebedingungen ansehen"
-                        style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
-                      >
-                        Es gelten unsere Teilnahmebedingungen
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                {/* close button removed - modal closes via overlay click */}
-              </div>
-            )}
-          </div>
-        </CardFrame>
-      </div>
-    </div>
-  )}
-
+      <section className="relative w-screen h-screen bg-red-500 snap-start snap-always">
+        <div className="h-full" />
+      </section>
+      
       {/* Footer Section */}
-      <section ref={footerSectionRef} className="relative w-screen h-screen bg-black text-white scroll-snap-section border-t border-white/10">
-    <div className="h-full flex flex-col justify-between relative z-10">
+      <section ref={footerSectionRef} className="relative w-screen h-screen bg-red-500 text-white snap-start snap-always">
+      <div className="h-full flex flex-col justify-between">
         {/* FAQ Section */}
         <div className="flex-1 flex items-center justify-center py-12">
           <div className="max-w-4xl mx-auto px-4">
             <h2 className="text-3xl font-bold text-center mb-12">Häufig gestellte Fragen</h2>
-              {/* FAQ Tabs */}
-              <div className="flex justify-center mb-8 gap-2">
-                {[
-                  { key: 'minigames', label: 'Minigames' },
-                  { key: 'tickets', label: 'Tickets & Verlosung' },
-                  { key: 'coins', label: 'Coins & Belohnungen' },
-                  { key: 'support', label: 'Technik & Support' }
-                ].map(tab => (
+            <div className="space-y-4">
+              {/* FAQ Item 1 */}
+              <div className="w-full flex justify-center">
+                <div className="bg-white/90 rounded-lg w-full box-border overflow-hidden" style={{ width: 'min(86vw,980px)' }}>
                   <button
-                    key={tab.key}
-                    className={`px-6 py-2 rounded-full font-semibold transition-colors duration-150 ${faqTab === tab.key ? 'bg-white text-black shadow' : 'bg-black/10 text-white/80'}`}
-                    onClick={() => {
-                      setFaqTab(tab.key as typeof faqTab);
-                      setOpenFaq(null);
-                    }}
-                    aria-selected={faqTab === tab.key}
+                    className="w-full px-6 py-4 text-left flex justify-between items-center"
+                    onClick={() => setOpenFaq(openFaq === 1 ? null : 1)}
+                    aria-expanded={openFaq === 1}
+                    aria-controls="faq-1"
                   >
-                    {tab.label}
+                    <span className="font-semibold text-black">Wie kann ich Coins verdienen?</span>
+                    <span className={`transition-transform duration-200 text-black ${openFaq === 1 ? 'rotate-180' : 'rotate-0'}`}>▼</span>
                   </button>
-                ))}
-              </div>
-              {/* FAQ Accordions */}
-              <div className="space-y-4">
-                {faqGroups[faqTab].map((item, idx) => (
-                  <div key={idx} className="w-full flex justify-center">
-                    <div className="bg-white/90 rounded-lg w-full box-border overflow-hidden" style={{ width: 'min(86vw,980px)' }}>
-                      <button
-                        className="w-full px-6 py-4 text-left flex justify-between items-center"
-                        onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                        aria-expanded={openFaq === idx}
-                        aria-controls={`faq-${idx}`}
-                      >
-                        <span className="font-semibold text-black">{item.question}</span>
-                        <span className={`transition-transform duration-200 text-black ${openFaq === idx ? 'rotate-180' : 'rotate-0'}`}>▼</span>
-                      </button>
-                      <div id={`faq-${idx}`} className="px-6 pb-4 text-black/80" style={{ display: openFaq === idx ? 'block' : 'none' }}>
-                        {item.answer}
-                      </div>
-                    </div>
+                  <div id="faq-1" className="px-6 pb-4 text-black/80" style={{ display: openFaq === 1 ? 'block' : 'none' }}>
+                    Du kannst Coins durch das Spielen von Minigames, tägliche Logins und das Abschließen verschiedener Aufgaben verdienen. Jede Aktivität bringt dir unterschiedlich viele Coins ein.
                   </div>
-                ))}
+                </div>
               </div>
-          </div>
-        </div>
-        {/* Divider between FAQ and footer - matches footer content width */}
-          {/* Divider between FAQ and footer - matches footer content width */}
-          <div className="w-full" aria-hidden>
-            <div className="max-w-6xl mx-auto px-4">
-              <div className="border-t border-white/10" aria-hidden />
+
+              {/* FAQ Item 2 */}
+              <div className="w-full flex justify-center">
+                <div className="bg-white/90 rounded-lg w-full box-border overflow-hidden" style={{ width: 'min(86vw,980px)' }}>
+                  <button
+                    className="w-full px-6 py-4 text-left flex justify-between items-center"
+                    onClick={() => setOpenFaq(openFaq === 2 ? null : 2)}
+                    aria-expanded={openFaq === 2}
+                    aria-controls="faq-2"
+                  >
+                    <span className="font-semibold text-black">Was sind Tickets und wie funktionieren sie?</span>
+                    <span className={`transition-transform duration-200 text-black ${openFaq === 2 ? 'rotate-180' : 'rotate-0'}`}>▼</span>
+                  </button>
+                  <div id="faq-2" className="px-6 pb-4 text-black/80" style={{ display: openFaq === 2 ? 'block' : 'none' }}>
+                    Tickets sind deine Eintrittskarten für die täglichen Verlosungen. Je mehr Tickets du hast, desto höher sind deine Gewinnchancen bei den Preisverlosungen.
+                  </div>
+                </div>
+              </div>
+
+              {/* FAQ Item 3 */}
+              <div className="w-full flex justify-center">
+                <div className="bg-white/90 rounded-lg w-full box-border overflow-hidden" style={{ width: 'min(86vw,980px)' }}>
+                  <button
+                    className="w-full px-6 py-4 text-left flex justify-between items-center"
+                    onClick={() => setOpenFaq(openFaq === 3 ? null : 3)}
+                    aria-expanded={openFaq === 3}
+                    aria-controls="faq-3"
+                  >
+                    <span className="font-semibold text-black">Wie funktioniert die Streak?</span>
+                    <span className={`transition-transform duration-200 text-black ${openFaq === 3 ? 'rotate-180' : 'rotate-0'}`}>▼</span>
+                  </button>
+                  <div id="faq-3" className="px-6 pb-4 text-black/80" style={{ display: openFaq === 3 ? 'block' : 'none' }}>
+                    Deine Streak zeigt an, wie viele Tage hintereinander du dich eingeloggt hast. Je länger deine Streak, desto bessere Belohnungen erhältst du für deine täglichen Aktivitäten.
+                  </div>
+                </div>
+              </div>
+
+              {/* FAQ Item 4 */}
+              <div className="w-full flex justify-center">
+                <div className="bg-white/90 rounded-lg w-full box-border overflow-hidden" style={{ width: 'min(86vw,980px)' }}>
+                  <button
+                    className="w-full px-6 py-4 text-left flex justify-between items-center"
+                    onClick={() => setOpenFaq(openFaq === 4 ? null : 4)}
+                    aria-expanded={openFaq === 4}
+                    aria-controls="faq-4"
+                  >
+                    <span className="font-semibold text-black">Wann werden die Gewinner bekannt gegeben?</span>
+                    <span className={`transition-transform duration-200 text-black ${openFaq === 4 ? 'rotate-180' : 'rotate-0'}`}>▼</span>
+                  </button>
+                  <div id="faq-4" className="px-6 pb-4 text-black/80" style={{ display: openFaq === 4 ? 'block' : 'none' }}>
+                    Die Gewinner werden täglich um 20:00 Uhr MEZ gezogen und bekannt gegeben. Du wirst benachrichtigt, falls du gewonnen hast.
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-  <footer className="bg-black text-white py-6">
-    <div className="max-w-6xl mx-auto px-4">
+        </div>
+        <footer className="bg-black text-white py-6">
+          <div className="max-w-6xl mx-auto px-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <h3 className="text-base font-semibold mb-2">
@@ -4914,9 +3646,9 @@ function currentDailyPos() {
               <div>
                 <h4 className="text-sm font-semibold mb-2">Links</h4>
                 <ul className="space-y-1 text-sm text-gray-400">
-                  <li><a href="/datenschutz" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Datenschutz</a></li>
-                  <li><a href="/impressum" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Impressum</a></li>
-                  <li><a href="/agb" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">AGB</a></li>
+                  <li><a href="/datenschutz" className="hover:text-white transition-colors">Datenschutz</a></li>
+                  <li><a href="/impressum" className="hover:text-white transition-colors">Impressum</a></li>
+                  <li><a href="/agb" className="hover:text-white transition-colors">AGB</a></li>
                   <li><a href="#" className="hover:text-white transition-colors">Support</a></li>
                 </ul>
               </div>
@@ -4945,6 +3677,6 @@ function currentDailyPos() {
         </footer>
       </div>
     </section>
-  </React.Fragment>
+    </>
   );
 }
