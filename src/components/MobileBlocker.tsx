@@ -22,6 +22,9 @@ export default function MobileBlocker() {
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:999999,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',padding:24}}>
       <div style={{maxWidth:720,textAlign:'center'}}>
+        <div style={{display:'flex',justifyContent:'center',marginBottom:12}}>
+          <img src="/adblock-warning.png" alt="warning" style={{width:64,height:64,objectFit:'contain',borderRadius:12,boxShadow:'0 6px 20px rgba(0,0,0,0.5)'}} />
+        </div>
         <div style={{fontSize:28,fontWeight:800,marginBottom:12}}>Zugriff nur auf Desktop</div>
         <div style={{fontSize:16,opacity:0.95,marginBottom:18}}>Diese Seite ist nur auf Desktop-Rechnern zugänglich. Bitte öffne die Seite auf einem Desktop-Gerät.</div>
         <div style={{fontSize:13,opacity:0.9,marginBottom:20}}>Wenn du diese Meldung irrtümlich siehst, versuche den Browser-User-Agent zurückzusetzen oder nutze ein Desktop-Gerät. Mobile Nutzung wird blockiert.</div>
