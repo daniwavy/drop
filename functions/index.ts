@@ -503,6 +503,15 @@ function raffleDrawDateId(d: Date = new Date()): string {
   return formatBerlinDay(target);
 }
 
+// Return the current Berlin date id (YYYY-MM-DD) for the given instant.
+// Unlike raffleDrawDateId which applies a cutoff, this returns the calendar day
+// in Berlin for the provided moment — used so manual runs write to the day they
+// actually take place.
+function currentBerlinDateId(d: Date = new Date()): string {
+  const parts = berlinParts(d);
+  return formatBerlinDay({ year: parts.year, month: parts.month, day: parts.day });
+}
+
 function detRand(uid: string, salt: string, seed: string): number {
   const crypto = require('crypto') as typeof import('crypto');
   const hex = crypto.createHmac('sha256', seed).update(`${uid}|${salt}`).digest('hex').slice(0, 13);
@@ -696,13 +705,17 @@ async function choosePrizePoolLevel(_dayId: string, totalTickets: number): Promi
   return { levelKey: chosen.key, items: chosen.items, desiredLevel: (current?.index ?? chosen.index) };
 }
 
-async function runRaffleForDate(dateIdInput?: string) {
+async function runRaffleForDate() {
   const debug: string[] = [];
   const step = (s: string) => { debug.push(s); console.log('[runRaffle]', s); };
 
   try {
     step('start');
-    const dateId = dateIdInput ? String(dateIdInput) : raffleDrawDateId();
+    // ALWAYS use the server-side Berlin calendar day. Ignore any client overrides.
+    const serverNow = admin.firestore.Timestamp.now();
+    const dateId = currentBerlinDateId(serverNow.toDate());
+    console.log('[runRaffle] using serverBerlinDateId =', dateId);
+
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateId)) {
       throw new HttpsError('invalid-argument', 'bad dateId', { dateId });
     }
@@ -794,28 +807,36 @@ async function runRaffleForDate(dateIdInput?: string) {
     step('done');
 
     return { ok: true, dateId, levelKey, totalTickets: totalTicketsAll, eligibleTickets: totalEligibleTickets, desiredLevel, winners: winnerRows, debug };
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('[runRaffle] error', e);
     if (e instanceof HttpsError) {
-      (e as any).details = { ...(e.details || {}), debug };
-      throw e;
+      // attach debug to details safely
+      const err: any = e;
+      err.details = { ...(err.details || {}), debug };
+      throw err;
     }
-    throw new HttpsError('internal', e?.message || 'INTERNAL', { code: e?.code, stack: e?.stack, debug });
+    const errMsg = (e && typeof (e as any).message === 'string') ? (e as any).message : 'INTERNAL';
+    throw new HttpsError('internal', errMsg, { debug });
   }
 }
 
 export const runRaffleNow = onCall({ cors: true, region: 'us-central1' }, async (req) => {
-  const override = req.data?.dateId ? String(req.data.dateId) : undefined;
-  return runRaffleForDate(override);
+  // Ignore any client-supplied date. Always use server-side Berlin calendar day.
+  console.log('[runRaffleNow] called by=', req.auth?.uid || req.auth?.token?.email || 'unknown', ' - ignoring client date overrides');
+  return runRaffleForDate();
 });
 
 export const runRaffleDaily = onSchedule({ schedule: '0 20 * * *', timeZone: 'Europe/Berlin' }, async () => {
-  const today = raffleDrawDateId();
-  console.log('[runRaffleDaily] trigger', today);
+  // Use server-side calendar day in Berlin for scheduled raffles as well.
+  // This ensures scheduled and manual raffles both write under the same
+  // calendar day (no cutoff semantics).
   try {
-    const res = await runRaffleForDate(today);
-    console.log('[runRaffleDaily] success', { dateId: res.dateId, winners: Object.keys(res.winners || {}).length });
-  } catch (e: any) {
+  const nowTs = admin.firestore.Timestamp.now();
+  const today = currentBerlinDateId(nowTs.toDate());
+  console.log('[runRaffleDaily] trigger (server calendar day)', today);
+  const res = await runRaffleForDate();
+  console.log('[runRaffleDaily] success', { winners: Object.keys(res.winners || {}).length });
+  } catch (e: unknown) {
     console.error('[runRaffleDaily] failed', e);
     throw e;
   }

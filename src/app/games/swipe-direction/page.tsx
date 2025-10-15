@@ -267,22 +267,22 @@ export default function Page() {
         ticketsMin: RAFFLE_TICKET_MIN,
       } as any;
       try {
-        sessionStorage.setItem('resultPayload', JSON.stringify(payload));
+        // ensure payload contains the same fields tap-rush uses
+        const effMult = navMult || 1;
+        const tix2x = effMult === 2;
+        const unified = Object.assign({}, payload, {
+          multiplier: effMult,
+          mult: effMult,
+          tix2x,
+          double: tix2x,
+          x2: tix2x,
+        });
+        sessionStorage.setItem('resultPayload', JSON.stringify(unified));
         const seed = { coins: coinsSnapshot, streak: streakSnapshot, now: Date.now() };
         sessionStorage.setItem('topbarSnapshot', JSON.stringify(seed));
       } catch {}
-
-      const qs = new URLSearchParams({
-        game: GAME_NAME,
-        score: String(s),
-        tickets: String(navTickets),
-        diamonds: String(navDiamonds),
-        mult: String(navMult),
-        coins: String(coinsSnapshot),
-      }).toString();
-      const href = `/result?${qs}`;
-      const go = () => { try { router.replace(href); } catch { window.location.href = href; } };
-      requestAnimationFrame(() => requestAnimationFrame(go));
+      // navigate to result page the same way tap-rush does
+      requestAnimationFrame(() => requestAnimationFrame(() => { try { router.replace('/result'); } catch { window.location.href = '/result'; } }));
     }
   }
 

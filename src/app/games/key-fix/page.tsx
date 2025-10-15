@@ -143,12 +143,13 @@ export default function Page() {
   const grantTickets = useCallback(async () => {
     if (resultPushedRef.current) return;
     resultPushedRef.current = true;
-    const amountBase = Math.max(0, ticketsByPoints(points));
-    let localMult = 1;
-    let navTickets = amountBase;
-    let navDiamonds = diamonds;
-    let currentTotalBefore: number | undefined;
-    let currentTotalAfter: number | undefined;
+  const amountBase = Math.max(0, ticketsByPoints(points));
+  let localMult = 1;
+  let navTickets = amountBase;
+  let navDiamonds = diamonds;
+  let navMult = 1;
+  let currentTotalBefore: number | undefined;
+  let currentTotalAfter: number | undefined;
     setSubmitting(true);
     setGrantStatus(null);
     try {
@@ -225,8 +226,9 @@ export default function Page() {
           : undefined;
       currentTotalBefore = currentBefore;
       currentTotalAfter = totalAfter;
-      const srvMult = (data as any)?.multiplier === 2 ? 2 : ((data as any)?.multiplier === 1 ? 1 : localMult);
-      navTickets = tAdded;
+  const srvMult = (data as any)?.multiplier === 2 ? 2 : ((data as any)?.multiplier === 1 ? 1 : localMult);
+  navTickets = tAdded;
+  navMult = srvMult;
       setGrantStatus(`Tickets: ${tAdded}${srvMult > 1 ? ' (x' + srvMult + ')' : ''}`);
 
       if (diamonds > 0) {
@@ -243,17 +245,27 @@ export default function Page() {
       setGrantStatus('Fehler beim Gutschreiben der Tickets');
     } finally {
       setSubmitting(false);
+      // Align payload structure with tap-rush: include multiplier, tix2x and diagnostics
+      const effMult = navMult || 1;
+      const tix2x = effMult === 2;
       sessionStorage.setItem('resultPayload', JSON.stringify({
         game: 'key-fix',
         score: points,
         tickets: navTickets,
         diamonds: navDiamonds,
-        mult: 1,
-        coins,
-        streak,
+        multiplier: effMult,
+        mult: effMult,
+        tix2x,
+        double: tix2x,
+        x2: tix2x,
+        capped: false,
+        room: undefined,
+        current: currentTotalBefore,
         ticketsBefore: currentTotalBefore,
         ticketsTotal: currentTotalAfter,
         ticketsMin: RAFFLE_TICKET_MIN,
+        coins,
+        streak,
       }));
       router.push('/result');
     }

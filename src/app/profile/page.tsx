@@ -23,6 +23,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+// ...existing imports...
 // Inline referral functions
 async function ensureReferralCodeForUser(uid: string): Promise<string> {
   // Generate or get existing referral code
@@ -679,6 +680,8 @@ export function AccountPanel({ embedded = false }: { embedded?: boolean }) {
     }
   };
 
+  // ...existing code...
+
   const resendVerification = async () => {
     if (!auth.currentUser) return;
     setError(null);
@@ -1073,6 +1076,7 @@ export function AccountPanel({ embedded = false }: { embedded?: boolean }) {
                         <div className="flex items-center gap-2">
                           <button onClick={logout} disabled={busy} className="px-3 py-1.5 text-sm rounded-full bg-gray-100 text-black font-semibold disabled:opacity-60 hover:bg-gray-200">{busy ? "Logging out…" : "Logout"}</button>
                           <button onClick={deleteAccount} disabled={busy} className="px-3 py-1.5 text-sm rounded-full border border-gray-300 text-black font-semibold disabled:opacity-60 hover:bg-gray-50 whitespace-nowrap">Account löschen</button>
+                          {/* Admin test button moved to /test-console */}
                         </div>
                       </div>
                       

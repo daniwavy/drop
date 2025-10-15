@@ -261,6 +261,8 @@ function RaffleTestTerminal({
     setSeedInfo(null);
     try {
       const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'runRaffleNow');
+      const res: any = await fn();
+      const data = res?.data || {};
       console.log('[runRaffleNow] data', data);
       const dbg = (() => { try { return JSON.stringify(data, null, 2); } catch { return String(data); } })();
       if (data.ok) {
@@ -559,6 +561,25 @@ function RaffleTestTerminal({
             disabled={raffleBusy || loading}
           >
             Ziehung starten (Cloud)
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'rotateMinigameNow');
+                const res: any = await fn({});
+                if (res?.data?.ok) {
+                  alert('Rotation: ' + (res.data.storagePath || 'OK'));
+                } else {
+                  alert('Rotation error: ' + (res?.data?.error || JSON.stringify(res?.data)));
+                }
+              } catch (e) {
+                console.error('rotateMinigameNow failed', e);
+                alert('rotateMinigameNow failed: ' + String(e));
+              }
+            }}
+            className="px-3 py-1 rounded bg-blue-600 text-white disabled:opacity-50"
+          >
+            Rotate Minigame
           </button>
           <button
             onClick={grantTestTickets}
@@ -3933,6 +3954,7 @@ function currentDailyPos() {
               Test
             </button>
           )}
+          {/* Quick access to Test Console was removed */}
           <button onClick={() => { closeAllModals(); setShowAccount(true); }} aria-label="Account" className="cursor-pointer">
             <img
               src={uid ? (selectedLocalAvatar || profilePhoto || "/profile-icon.png") : "/profile-icon.png"}
