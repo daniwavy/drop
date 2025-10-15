@@ -1458,8 +1458,8 @@ export default function DropPage() {
       }
       const url = new URL(window.location.href);
       const hostname = (url.hostname || '').toLowerCase();
-      const enable = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-            className="[perspective:1200px] cursor-pointer"
+      const enable = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname.endsWith('.localhost');
+      setTestEnabled(enable);
     } catch {}
   }, []);
 
