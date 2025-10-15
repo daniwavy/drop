@@ -6,7 +6,7 @@ export default function TeilnahmebedingungenPage() {
     <div className="min-h-screen bg-white text-black p-6 md:p-12">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
-          <Link href="/" className="text-sm text-black/60 hover:underline">← Zurück</Link>
+          <Link href="/" className="text-sm text-black/60 hover:underline cursor-pointer">← Zurück</Link>
         </div>
 
         <h1 className="text-3xl font-extrabold mb-4">Teilnahmebedingungen</h1>
@@ -65,7 +65,7 @@ export default function TeilnahmebedingungenPage() {
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-2">7. Kontakt</h2>
           <p className="text-sm text-black/70">
-            Bei Fragen zu den Teilnahmebedingungen erreichen Sie uns über den Support-Kanal in der App oder per E‑Mail an support@drop.example (Beispieladresse).
+            Bei Fragen zu den Teilnahmebedingungen erreichen Sie uns über den Support‑Kanal in der App oder per E‑Mail an <a href="mailto:support@drop.example" className="hover:underline cursor-pointer">support@drop.example</a> (Beispieladresse).
           </p>
         </section>
 

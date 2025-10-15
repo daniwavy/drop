@@ -431,7 +431,7 @@ function RaffleTestTerminal({
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" onClick={onClose} />
+  <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={onClose} />
       {/* Shrink modal by ~10%: reduce max width/height and add visible scrollbar */}
       <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(86vw,810px)] max-h-[81vh] p-4 overflow-auto visible-scrollbar">
         {/* close button intentionally removed - use overlay click or programmatic close */}
@@ -903,8 +903,10 @@ function ParticipateButton({ activeTile, setActiveTile, item }: { activeTile: nu
       aria-label={`Teilnehmen an Drop ${activeTile !== null ? activeTile + 1 : ''}`}
       onClick={onClick}
       disabled={busy}
-      className={`w-full py-4 ${busy ? 'opacity-60 pointer-events-none' : ''} bg-black text-white rounded-2xl text-lg font-bold shadow-lg hover:opacity-95 transition-opacity`}
-      style={{ boxShadow: '0 8px 20px rgba(0,0,0,0.35)' }}
+  className={`w-full py-4 ${busy ? 'opacity-60' : ''} bg-black text-white rounded-2xl text-lg font-bold shadow-lg hover:opacity-95 transition-opacity`}
+  style={{ boxShadow: '0 8px 20px rgba(0,0,0,0.35)', cursor: busy ? 'default' : 'pointer', pointerEvents: busy ? 'none' : 'auto' }}
+  onMouseEnter={(e) => { try { (e.currentTarget as HTMLElement).style.cursor = busy ? 'default' : 'pointer'; } catch {} }}
+  onMouseLeave={(e) => { try { (e.currentTarget as HTMLElement).style.cursor = ''; } catch {} }}
     >
       {busy ? 'Sende...' : 'Teilnehmen'}
     </button>
@@ -1035,7 +1037,7 @@ function NeonHoloCard({ title, subtitle, timeLabel, img, onImgLoad, onImgError, 
       onKeyDown={onKeyDown}
       role="button"
       tabIndex={0}
-      className="holo group relative w-full h-full [perspective:1200px] select-none"
+      className="holo group relative w-full h-full [perspective:1200px] select-none cursor-pointer"
       style={{ transformStyle: 'preserve-3d', outline: 'none' }}
     >
       {/* 3D card */}
@@ -1457,7 +1459,7 @@ export default function DropPage() {
       const url = new URL(window.location.href);
       const hostname = (url.hostname || '').toLowerCase();
       const enable = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-      setTestEnabled(!!enable);
+            className="[perspective:1200px] cursor-pointer"
     } catch {}
   }, []);
 
@@ -3906,7 +3908,7 @@ function currentDailyPos() {
           {/* Performance test spinner */}
           <div className="test-spinner h-6 w-6"></div>
           
-          <button onClick={() => { closeAllModals(); setShowNotifications(true); }} aria-label="Benachrichtigungen" className="h-8 w-8 flex items-center justify-center">
+          <button onClick={() => { closeAllModals(); setShowNotifications(true); }} aria-label="Benachrichtigungen" className="h-8 w-8 flex items-center justify-center cursor-pointer">
             <img 
               src="/icons/bell.png" 
               alt="Benachrichtigungen" 
@@ -3915,7 +3917,7 @@ function currentDailyPos() {
             />
           </button>
           {uid && (
-            <button onClick={() => { closeAllModals(); setShowItems(true); }} aria-label="Items">
+            <button onClick={() => { closeAllModals(); setShowItems(true); }} aria-label="Items" className="cursor-pointer">
               <img
                 src="/items/items-icon.png"
                 alt=""
@@ -3927,11 +3929,11 @@ function currentDailyPos() {
             </button>
           )}
           {testEnabled && (
-            <button onClick={() => setShowTest(true)} aria-label="Test-Terminal" className="h-8 px-2 rounded bg-white/10 text-white text-xs border border-white/20">
+            <button onClick={() => setShowTest(true)} aria-label="Test-Terminal" className="h-8 px-2 rounded bg-white/10 text-white text-xs border border-white/20 cursor-pointer">
               Test
             </button>
           )}
-          <button onClick={() => { closeAllModals(); setShowAccount(true); }} aria-label="Account">
+          <button onClick={() => { closeAllModals(); setShowAccount(true); }} aria-label="Account" className="cursor-pointer">
             <img
               src={uid ? (selectedLocalAvatar || profilePhoto || "/profile-icon.png") : "/profile-icon.png"}
               alt="Profil"
@@ -3998,7 +4000,7 @@ function currentDailyPos() {
       {/* Notifications Modal */}
       {showNotifications && (
         <div className="fixed inset-0 z-40 flex items-center justify-center opacity-100 pointer-events-auto">
-          <div className="absolute inset-0 bg-black/80" onClick={() => setShowNotifications(false)} />
+          <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowNotifications(false)} />
           <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[560px] p-8 md:p-10 flex flex-col items-center justify-center">
             <img
               src="/icons/zzz.svg"
@@ -4249,7 +4251,7 @@ function currentDailyPos() {
             <button
               type="button"
               onClick={() => { try { window.open('/Teilnahmebedingungen', '_blank', 'noopener'); } catch { window.open('/Teilnahmebedingungen', '_blank'); } }}
-              className="text-white text-sm underline-offset-2 hover:underline"
+              className="text-white text-sm underline-offset-2 hover:underline cursor-pointer"
               aria-label="Teilnahmebedingungen ansehen"
             >
               Es gelten unsere Teilnahmebedingungen
@@ -4274,7 +4276,7 @@ function currentDailyPos() {
       {/* Prize Pool Modal */}
       {showPool && (
         <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/80" onClick={() => setShowPool(false)} />
+          <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowPool(false)} />
           <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,980px)] max-h-[84vh] p-4 sm:p-6 overflow-hidden">
             {/* close button removed - rely on overlay click/programmatic close */}
             {/* Centered level bar below header: 50% modal width */}
@@ -4339,7 +4341,7 @@ function currentDailyPos() {
 
       {/* Daily Login Bonus */}
       <div className={`fixed inset-0 z-40 flex items-center justify-center ${showDaily ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-        <div className="absolute inset-0 bg-black/80" onClick={() => setShowDaily(false)} />
+  <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowDaily(false)} />
         <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(78vw,720px)] max-h-[86vh] p-4 sm:p-5 overflow-hidden">
             {/* close button removed - rely on overlay click/programmatic close */}
             {/* scroll container */}
@@ -4435,7 +4437,7 @@ function currentDailyPos() {
       {/* Account Modal */}
       {showAccount && (
         <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/80" onClick={() => { if (!mustComplete) setShowAccount(false); }} />
+          <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => { if (!mustComplete) setShowAccount(false); }} />
           <div className="relative bg-transparent text-black w-[min(92vw,480px)] max-h-[85vh] p-0 overflow-visible">
             {/* close button removed - rely on overlay click/programmatic close */}
             <div className="w-full max-h-[calc(85vh-2rem)] overflow-y-auto account-modal-scroll">
@@ -4779,7 +4781,9 @@ function currentDailyPos() {
                       }
                     }}
                     className={`w-full py-4 rounded-2xl text-lg font-bold shadow-lg transition-opacity relative flex items-center justify-center ${!canParticipate || popupBusy ? 'bg-black/70 cursor-not-allowed text-white/90' : 'bg-black text-white hover:opacity-95'}`}
-                    style={{ boxShadow: '0 8px 20px rgba(0,0,0,0.35)' }}
+                    style={{ boxShadow: '0 8px 20px rgba(0,0,0,0.35)', cursor: (!canParticipate || popupBusy) ? 'not-allowed' : 'pointer', pointerEvents: (!canParticipate || popupBusy) ? 'none' : 'auto' }}
+                    onMouseEnter={(e) => { try { (e.currentTarget as HTMLElement).style.cursor = (!canParticipate || popupBusy) ? 'not-allowed' : 'pointer'; } catch {} }}
+                    onMouseLeave={(e) => { try { (e.currentTarget as HTMLElement).style.cursor = ''; } catch {} }}
                   >
                       {canParticipate && !popupBusy && (
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 pointer-events-none">
@@ -4823,7 +4827,7 @@ function currentDailyPos() {
                       <button
                         type="button"
                         onClick={() => { try { router.push('/Teilnahmebedingungen'); } catch { window.location.href = '/Teilnahmebedingungen'; } }}
-                        className="text-black text-[12px] text-center underline-offset-2 hover:underline"
+                        className="text-black text-[12px] text-center underline-offset-2 hover:underline cursor-pointer"
                         aria-label="Teilnahmebedingungen ansehen"
                         style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
                       >
@@ -4858,12 +4862,15 @@ function currentDailyPos() {
                 ].map(tab => (
                   <button
                     key={tab.key}
-                    className={`px-6 py-2 rounded-full font-semibold transition-colors duration-150 ${faqTab === tab.key ? 'bg-white text-black shadow' : 'bg-black/10 text-white/80'}`}
+                    className={`px-6 py-2 rounded-full font-semibold transition-colors duration-150 ${faqTab === tab.key ? 'bg-white text-black shadow' : 'bg-black/10 text-white/80'} cursor-pointer`}
                     onClick={() => {
                       setFaqTab(tab.key as typeof faqTab);
                       setOpenFaq(null);
                     }}
                     aria-selected={faqTab === tab.key}
+                    role="tab"
+                    tabIndex={0}
+                    aria-controls={`faq-group-${tab.key}`}
                   >
                     {tab.label}
                   </button>
@@ -4875,7 +4882,7 @@ function currentDailyPos() {
                   <div key={idx} className="w-full flex justify-center">
                     <div className="bg-white/90 rounded-lg w-full box-border overflow-hidden" style={{ width: 'min(86vw,980px)' }}>
                       <button
-                        className="w-full px-6 py-4 text-left flex justify-between items-center"
+                        className="w-full px-6 py-4 text-left flex justify-between items-center cursor-pointer"
                         onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
                         aria-expanded={openFaq === idx}
                         aria-controls={`faq-${idx}`}

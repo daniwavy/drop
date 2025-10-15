@@ -23,14 +23,14 @@ export default function MobileBlocker() {
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:999999,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',padding:24}}>
       <div style={{maxWidth:720,textAlign:'center'}}>
         <div style={{display:'flex',justifyContent:'center',marginBottom:12}}>
-          <img src="/adblock-warning.png" alt="warning" style={{width:64,height:64,objectFit:'contain',borderRadius:12,boxShadow:'0 6px 20px rgba(0,0,0,0.5)'}} />
+          <img src="/adblock-warning.png" alt="warning" style={{width:192,height:192,objectFit:'contain',borderRadius:16,boxShadow:'0 10px 30px rgba(0,0,0,0.6)'}} />
+        </div>
+        <div style={{display:'flex',justifyContent:'center',marginBottom:10}}>
+          <div style={{background:'#10B981',color:'#fff',padding:'6px 10px',borderRadius:999,fontWeight:700,fontSize:14}}>App kommt bald</div>
         </div>
         <div style={{fontSize:28,fontWeight:800,marginBottom:12}}>Zugriff nur auf Desktop</div>
         <div style={{fontSize:16,opacity:0.95,marginBottom:18}}>Diese Seite ist nur auf Desktop-Rechnern zugänglich. Bitte öffne die Seite auf einem Desktop-Gerät.</div>
-        <div style={{fontSize:13,opacity:0.9,marginBottom:20}}>Wenn du diese Meldung irrtümlich siehst, versuche den Browser-User-Agent zurückzusetzen oder nutze ein Desktop-Gerät. Mobile Nutzung wird blockiert.</div>
-        <div style={{display:'flex',gap:12,justifyContent:'center'}}>
-          <a href="https://example.com" style={{background:'#111',color:'#fff',padding:'10px 16px',borderRadius:8,textDecoration:'none'}}>Hilfe & Support</a>
-        </div>
+        {/* removed support hint and button per request */}
       </div>
     </div>
   );
