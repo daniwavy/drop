@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import CookieConsent from '../components/CookieConsent';
+import MobileBlocker from '../components/MobileBlocker';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,6 +35,8 @@ export default function RootLayout({
         {/* Ensure browsers don't restore scroll automatically on reload */}
         <script dangerouslySetInnerHTML={{ __html: "try{history.scrollRestoration='manual'}catch(e){}" }} />
         {children}
+        <CookieConsent />
+        <MobileBlocker />
       </body>
     </html>
   );
