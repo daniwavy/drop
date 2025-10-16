@@ -5,6 +5,9 @@ import { doc, onSnapshot, getFirestore } from 'firebase/firestore';
 export default function MaintenanceBlocker() {
   const [maintenance, setMaintenance] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
+  const [bypassLocal, setBypassLocal] = React.useState<boolean>(() => {
+    try { return typeof window !== 'undefined' && localStorage.getItem('maintenance:bypass') === '1'; } catch { return false; }
+  });
 
   React.useEffect(() => {
     try {
@@ -45,7 +48,9 @@ export default function MaintenanceBlocker() {
     return;
   }, [maintenance]);
 
-  if (!maintenance) return null;
+  // Allow a local bypass when developing on localhost
+  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  if (!maintenance || (bypassLocal && isLocalhost)) return null;
 
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:999999,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',padding:24}}>
@@ -55,6 +60,15 @@ export default function MaintenanceBlocker() {
           <div style={{fontSize:40,fontWeight:900}}>Wartungsarbeiten</div>
         </div>
         {message ? <div style={{fontSize:16,opacity:0.95,marginBottom:18}}>{message}</div> : <div style={{fontSize:16,opacity:0.95,marginBottom:18}}>Wir führen gerade Wartungsarbeiten durch. Bitte versuche es später erneut.</div>}
+        {isLocalhost && (
+          <div style={{marginTop:12}}>
+            {!bypassLocal ? (
+              <button onClick={() => { try { localStorage.setItem('maintenance:bypass','1'); } catch{}; setBypassLocal(true); }} style={{padding:'10px 16px',borderRadius:8,background:'#10B981',color:'#fff',border:'none',fontWeight:700}}>Bypass Maintenance (localhost)</button>
+            ) : (
+              <button onClick={() => { try { localStorage.removeItem('maintenance:bypass'); } catch{}; setBypassLocal(false); }} style={{padding:'8px 12px',borderRadius:8,background:'#374151',color:'#fff',border:'none',fontWeight:700}}>Disable Bypass</button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
