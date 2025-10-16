@@ -9,6 +9,8 @@ declare global {
 }
 import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import CardFrame from '../../components/CardFrame';
+import RandomBackgrounds from '../../components/RandomBackgrounds';
+import Link from 'next/link';
 import { ref, getDownloadURL } from "firebase/storage";
 import { storage } from "../../lib/firebase";
 // --- Cached getDownloadURL with memory + localStorage TTL ---
@@ -1466,7 +1468,13 @@ export default function DropPage() {
     window.addEventListener('localAvatarChanged', handleAvatarChange as EventListener);
     return () => window.removeEventListener('localAvatarChanged', handleAvatarChange as EventListener);
   }, []);
-  const [forceRaffleWindow, setForceRaffleWindow] = useState(false);
+  const [forceRaffleWindow, setForceRaffleWindow] = useState<boolean>(() => {
+    try {
+      return document?.documentElement?.getAttribute('data-force-raffle-window') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
   const [testEnabled, setTestEnabled] = useState(false);
 
   useEffect(() => {
@@ -3068,17 +3076,21 @@ type ShopItem = { id: 'double_xp'|'double_tickets'|'ad_20_coins'; name: string; 
     return `${m}:${sec}`;
   }
 
-  function nextLocal3hMsFrom(nowMs: number) {
+  // Compute next rotation timestamp at hours 0,5,10,15,20 (Berlin-local) coming after nowMs
+  function nextLocal5hMsFrom(nowMs: number) {
     const d = new Date(nowMs);
     d.setMinutes(0, 0, 0);
     const h = d.getHours();
-    const nextH = Math.floor(h / 3) * 3 + 3; // 0,3,6,9,12,15,18,21 → next
-    if (nextH >= 24) {
+    // allowed hours array
+    const allowed = [0, 5, 10, 15, 20];
+    // find next allowed hour strictly after current hour
+    let nextHour = allowed.find(a => a > h);
+    if (nextHour === undefined) {
+      // wrap to next day's 0 hour
+      nextHour = 0;
       d.setDate(d.getDate() + 1);
-      d.setHours(nextH - 24);
-    } else {
-      d.setHours(nextH);
     }
+    d.setHours(nextHour, 0, 0, 0);
     return d.getTime();
   }
 
@@ -3429,18 +3441,29 @@ function currentDailyPos() {
       const fs = getFirestore();
       const unsub = onSnapshot(doc(fs, "config", "currentMinigame"), async (snap) => {
         const data = snap.data();
-        if (data && data.nextAt?.toMillis) {
-          let ts = data.nextAt.toMillis();
-          const snapToHour = new Date(ts);
-          snapToHour.setMinutes(0, 0, 0);
-          ts = snapToHour.getTime();
+        const serverNow = serverNowBaseRef.current + (performance.now() - perfBaseRef.current);
 
-          const serverNow = serverNowBaseRef.current + (performance.now() - perfBaseRef.current);
-          if (ts <= serverNow) ts = nextLocal3hMsFrom(serverNow);
-          setNextAtMs(ts);
+        if (data) {
+          // Prefer authoritative updatedAt + 5h to avoid stale nextAt values from older deployments
+          let ts: number | null = null;
+          if (data.updatedAt?.toMillis) {
+            ts = data.updatedAt.toMillis() + 5 * 60 * 60 * 1000;
+          } else if (data.nextAt?.toMillis) {
+            ts = data.nextAt.toMillis();
+          }
+
+          if (ts != null) {
+            // snap to hour boundary for nicer display
+            const snapToHour = new Date(ts);
+            snapToHour.setMinutes(0, 0, 0);
+            ts = snapToHour.getTime();
+            if (ts <= serverNow) ts = nextLocal5hMsFrom(serverNow);
+            setNextAtMs(ts);
+          } else {
+            setNextAtMs(nextLocal5hMsFrom(serverNow));
+          }
         } else {
-          const serverNow = serverNowBaseRef.current + (performance.now() - perfBaseRef.current);
-          setNextAtMs(nextLocal3hMsFrom(serverNow));
+          setNextAtMs(nextLocal5hMsFrom(serverNow));
         }
         setMinigameResolved(false);
         try {
@@ -4045,15 +4068,16 @@ function currentDailyPos() {
       {/* Test Terminal */}
       {showTest && (
         <RaffleTestTerminal
-          onClose={() => {
-            setShowTest(false);
-            setForceRaffleWindow(false);
-          }}
-          forceRaffleWindow={forceRaffleWindow}
-          onForceRaffleWindowChange={setForceRaffleWindow}
-        />
+            onClose={() => {
+              setShowTest(false);
+            }}
+            forceRaffleWindow={forceRaffleWindow}
+            onForceRaffleWindowChange={setForceRaffleWindow}
+          />
       )}
-      {/* Main viewport content: ads + center column with proportional layout */}
+  {/* Random background blobs */}
+  <RandomBackgrounds count={5} />
+  {/* Main viewport content: ads + center column with proportional layout */}
       <div className="relative z-10 flex-1 w-full px-4 overflow-hidden flex justify-between items-center" style={{paddingTop: '5rem'}}>
         {/* Left panel: Yesterday's winners */}
         <aside className="hidden xl:flex w-[300px] flex-col gap-4 self-center -mr-4">

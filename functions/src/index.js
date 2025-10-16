@@ -108,8 +108,8 @@ function ticketsDateIdFromMs(ms) {
     const minutes = parts.hour * 60 + parts.minute + parts.second / 60;
     const cutoff = 20 * 60 + 15; // 20:15 Berlin time
     let target = { year: parts.year, month: parts.month, day: parts.day };
-    // Only move to next day if strictly after 20:15 (i.e. minutes > cutoff)
-    if (minutes > cutoff) {
+    // Move to next day if at or after 20:15 (i.e. minutes >= cutoff)
+    if (minutes >= cutoff) {
         target = shiftBerlinDay(target, 1);
     }
     return formatBerlinDay(target);

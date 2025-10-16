@@ -225,7 +225,16 @@ exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }
         const amountRaw = req.data?.amount;
         const amount = Math.max(0, Math.floor(Number(amountRaw ?? 0)));
         const serverNowBase = admin.firestore.Timestamp.now();
-        const todayId = raffleCollectionDateId(serverNowBase.toDate());
+        // Compute tickets day using Berlin 20:15 cutoff: at/after 20:15 assign to tomorrow
+        const partsForTickets = berlinParts(serverNowBase.toDate());
+        const minutesForTickets = partsForTickets.hour * 60 + partsForTickets.minute + partsForTickets.second / 60;
+        const ticketsCutoff = 20 * 60 + 15; // 20:15
+        let ticketsTarget = { year: partsForTickets.year, month: partsForTickets.month, day: partsForTickets.day };
+        if (minutesForTickets >= ticketsCutoff) {
+            ticketsTarget = shiftBerlinDay(ticketsTarget, 1);
+        }
+        const todayId = formatBerlinDay(ticketsTarget);
+        console.log('[grantTickets] COMPUTED_TICKETS_DAY', { berlinTimeParts: partsForTickets, minutesForTickets, ticketsCutoff, todayId });
         if (amount === 0) {
             // Even with zero amount, expose tix2x so the UI can trigger animations correctly
             let tix2xZero = false;
@@ -319,6 +328,8 @@ exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }
             const diag = { current, room: MAX_TICKETS_PER_DAY == null ? null : Math.max(0, MAX_TICKETS_PER_DAY - current), effective, base: amount, tix2x };
             // WRITES AFTER ALL READS
             if (grantId && gRef) {
+                // Debug log: which day we *intend* to write for this grant
+                console.log('[grantTickets] WRITE_INTENT grantDoc', { grantPath: gRef.path, intendedDay: todayId, amountRequested: amount, applied });
                 tx.set(gRef, {
                     status: 'done', amountRequested: amount, amountApplied: applied, multiplier, capped, day: todayId,
                     current,
@@ -328,16 +339,24 @@ exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }
                 }, { merge: true });
             }
             if (cSnap.exists) {
+                // Debug log before updating daily counter
+                console.log('[grantTickets] WRITE_INTENT counterRef', { counterPath: counterRef.path, intendedDay: todayId, incrementBy: applied });
                 tx.update(counterRef, { tickets: admin.firestore.FieldValue.increment(applied), day: todayId });
             }
             else {
+                // Debug log before setting daily counter
+                console.log('[grantTickets] WRITE_INTENT counterRef', { counterPath: counterRef.path, intendedDay: todayId, setTo: applied });
                 tx.set(counterRef, { tickets: applied, day: todayId });
             }
             // shard write for aggregate scaling
             const shard = hashUidToShard(uid, SHARDS);
             const shardRef = db.doc(`metrics_daily_shards/${todayId}/shards/${shard}`);
+            // Debug: log shard write intent
+            console.log('[grantTickets] WRITE_INTENT shardRef', { shardPath: shardRef.path, intendedDay: todayId, incrementBy: applied });
             tx.set(shardRef, { tickets: admin.firestore.FieldValue.increment(applied) }, { merge: true });
             // set dedupe marker for next burst
+            // Debug: log rtRef write intent
+            console.log('[grantTickets] WRITE_INTENT rtRef', { rtPath: rtRef.path, intendedDay: todayId, atMs: nowMsServer, bucket });
             tx.set(rtRef, { atMs: nowMsServer, day: todayId, bucket }, { merge: true });
             return { applied, multiplier, capped, day: todayId, ...diag };
         });
@@ -347,7 +366,8 @@ exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }
             added: res.applied,
             multiplier: res.multiplier,
             capped: res.capped,
-            day: res.day,
+                day: res.day,
+                impl: 'functions-root',
             skipped: res.skipped === true,
             current: res.current,
             room: roomReturn == null || roomReturn === undefined ? null : roomReturn,
@@ -402,6 +422,61 @@ exports.onDailyTicketsChange = (0, firestore_1.onDocumentWritten)({ document: 'u
         throw e;
     }
 });
+
+// --- rotateMinigame scheduler (moved into functions codebase so deploys update it) ---
+// Rotates the current minigame every 3 hours; reads active minigames from Firestore
+const DEFAULT_MINIGAME_PREFIX = '/minigame-previews/';
+async function listActiveMinigames() {
+    try {
+        const snap = await db.collection('minigames').where('active', '==', true).get();
+        return snap.docs.map(d => d.data()?.previewImage).filter(Boolean);
+    }
+    catch (e) {
+        console.error('[rotateMinigame] listActiveMinigames error', e && e.stack ? e.stack : e);
+        return [];
+    }
+}
+
+function pickRandomExcluding(files, prevFile) {
+    const prev = prevFile ? String(prevFile).split('/').pop() : null;
+    if (!files || files.length === 0) return null;
+    if (files.length === 1) return files[0];
+    const pool = files.filter(f => f !== prev);
+    return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : files[0];
+}
+
+// Rotate minigame at 00:00, 05:00, 10:00, 15:00 and 20:00 Berlin time
+exports.rotateMinigame = (0, scheduler_1.onSchedule)({ schedule: '0 0,5,10,15,20 * * *', timeZone: 'Europe/Berlin' }, async () => {
+    try {
+        const docRef = db.collection('config').doc('currentMinigame');
+        await db.runTransaction(async tx => {
+            const curSnap = await tx.get(docRef);
+            const prevPath = curSnap.exists ? curSnap.data()?.storagePath : null;
+            const files = await listActiveMinigames();
+            const chosen = pickRandomExcluding(files, prevPath);
+            if (!chosen) {
+                console.log('[rotateMinigame] no active minigames, skipping');
+                return;
+            }
+            const storagePath = DEFAULT_MINIGAME_PREFIX + chosen;
+            const now = admin.firestore.Timestamp.now();
+            const nextAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 60 * 1000);
+            tx.set(docRef, { id: chosen, storagePath, updatedAt: now, nextAt }, { merge: true });
+            try {
+                console.log(`[rotateMinigame] rotated from ${String(prevPath)} to ${String(storagePath)}`);
+            }
+            catch (logErr) {
+                // Fall back to simple string log if structured logging fails for any reason
+                console.log('[rotateMinigame] rotated (log failure)', String(logErr));
+            }
+        });
+        console.log('[rotateMinigame] rotation complete');
+    }
+    catch (err) {
+        console.error('[rotateMinigame] error during rotation:', err && err.stack ? err.stack : err);
+        throw err;
+    }
+});
 // Aggregate shard updates into metrics_daily/{day}
 exports.onShardChangeAggregateDaily = (0, firestore_1.onDocumentWritten)({ document: 'metrics_daily_shards/{day}/shards/{shard}', region: 'us-central1' }, async (event) => {
     const day = String(event.params?.day || '');
@@ -439,6 +514,7 @@ const berlinPartsFormatter = new Intl.DateTimeFormat('en-CA', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    hour12: false,
 });
 function berlinParts(d = new Date()) {
     const parts = berlinPartsFormatter.formatToParts(d);
@@ -447,13 +523,54 @@ function berlinParts(d = new Date()) {
         if (p.type !== 'literal')
             map[p.type] = p.value;
     }
+    // Normalize hour to 0-23. Some environments return 12-hour hours plus a dayPeriod (AM/PM),
+    // or (in some Node Intl builds) a 12-hour hour without a dayPeriod. Use a robust fallback
+    // to parse a full en-CA localized string with hour12:false if needed.
+    let hour = Number(map.hour || '0');
+    const minute = Number(map.minute || '0');
+    const second = Number(map.second || '0');
+    const dayPeriod = (map.dayPeriod || '').toLowerCase();
+    if (dayPeriod === 'pm' && hour < 12)
+        hour += 12;
+    if (dayPeriod === 'am' && hour === 12)
+        hour = 0;
+    // If we found a small hour (<=12) and there was no dayPeriod, fall back to parsing a
+    // toLocaleString with hour12:false which reliably yields 24-hour hours across platforms.
+    if ((!dayPeriod || dayPeriod === '') && hour <= 12) {
+        try {
+            const s = d.toLocaleString('en-CA', {
+                timeZone: 'Europe/Berlin',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+            });
+            const m = s.match(/(\d{4})-(\d{2})-(\d{2}).*?(\d{2}):(\d{2}):(\d{2})/);
+            if (m) {
+                // overwrite with reliably parsed values
+                const py = Number(m[1]);
+                const pm = Number(m[2]);
+                const pd = Number(m[3]);
+                const ph = Number(m[4]);
+                const pmin = Number(m[5]);
+                const psec = Number(m[6]);
+                return { year: py, month: pm, day: pd, hour: ph, minute: pmin, second: psec };
+            }
+        }
+        catch (e) {
+            // ignore fallback errors and return the naive parse below
+        }
+    }
     return {
         year: Number(map.year || '0'),
         month: Number(map.month || '0'),
         day: Number(map.day || '0'),
-        hour: Number(map.hour || '0'),
-        minute: Number(map.minute || '0'),
-        second: Number(map.second || '0'),
+        hour: hour,
+        minute,
+        second,
     };
 }
 function formatBerlinDay(day) {
@@ -463,6 +580,46 @@ function shiftBerlinDay(day, delta) {
     const base = new Date(Date.UTC(day.year, day.month - 1, day.day));
     base.setUTCDate(base.getUTCDate() + delta);
     return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1, day: base.getUTCDate() };
+}
+
+// Robust helper: parse Europe/Berlin wall time from a Date using toLocaleString (24h) and
+// compute tickets-day id applying a 20:15 cutoff (>= => next day).
+function ticketsDateInfoFromDate(d) {
+    try {
+        const s = d.toLocaleString('en-CA', {
+            timeZone: 'Europe/Berlin',
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        });
+        const m = s.match(/(\d{4})-(\d{2})-(\d{2}).*?(\d{2}):(\d{2}):(\d{2})/);
+        if (m) {
+            const year = Number(m[1]);
+            const month = Number(m[2]);
+            const day = Number(m[3]);
+            const hour = Number(m[4]);
+            const minute = Number(m[5]);
+            const second = Number(m[6]);
+            const minutesForTickets = hour * 60 + minute + second / 60;
+            const cutoff = 20 * 60 + 15;
+            let targetYear = year, targetMonth = month, targetDay = day;
+            if (minutesForTickets >= cutoff) {
+                const base = new Date(Date.UTC(year, month - 1, day));
+                base.setUTCDate(base.getUTCDate() + 1);
+                targetYear = base.getUTCFullYear();
+                targetMonth = base.getUTCMonth() + 1;
+                targetDay = base.getUTCDate();
+            }
+            const todayId = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
+            return { year, month, day, hour, minute, second, minutesForTickets, cutoff, todayId, parsedString: s };
+        }
+    }
+    catch (err) {
+        console.warn('[ticketsDateInfoFromDate] parse failed', String(err));
+    }
+    // Fallback: use Intl date-only
+    const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' });
+    const todayId = fmt.format(d);
+    return { year: 0, month: 0, day: 0, hour: 0, minute: 0, second: 0, minutesForTickets: 0, cutoff: 20 * 60 + 15, todayId, parsedString: null };
 }
 function raffleCollectionDateId(d = new Date()) {
     const parts = berlinParts(d);

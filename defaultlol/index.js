@@ -55,7 +55,7 @@ async function pickRandomExcludingPrev(prevPath) {
 async function writeCurrent(storagePath) {
   const nowMs = Date.now();
   const now = admin.firestore.Timestamp.fromMillis(nowMs);
-  const nextAt = admin.firestore.Timestamp.fromMillis(nowMs + 3 * 60 * 60 * 1000);
+  const nextAt = admin.firestore.Timestamp.fromMillis(nowMs + 5 * 60 * 60 * 1000);
 
   await db.collection("config").doc("currentMinigame").set(
     {
@@ -69,7 +69,7 @@ async function writeCurrent(storagePath) {
 }
 
 exports.rotateMinigame = onSchedule(
-  { schedule: "0 */3 * * *", timeZone: "Europe/Berlin" }, // volle Stunde, alle 3h, DE-Zeit
+  { schedule: "0 0,5,10,15,20 * * *", timeZone: "Europe/Berlin" }, // 00,05,10,15,20 Uhr DE-Zeit
   async () => {
     try {
       const docRef = db.collection("config").doc("currentMinigame");
@@ -92,7 +92,7 @@ exports.rotateMinigame = onSchedule(
         const storagePath = `/minigame-previews/${chosenFile}`;
         const nowMs = Date.now();
         const now = admin.firestore.Timestamp.fromMillis(nowMs);
-        const nextAt = admin.firestore.Timestamp.fromMillis(nowMs + 3 * 60 * 60 * 1000);
+  const nextAt = admin.firestore.Timestamp.fromMillis(nowMs + 5 * 60 * 60 * 1000);
 
         tx.set(
           docRef,
@@ -105,7 +105,12 @@ exports.rotateMinigame = onSchedule(
           { merge: true }
         );
 
-        console.log("rotateMinigame: will rotate from", prevPath, "to", nextPath);
+        // Log chosen storagePath (use safe template to avoid logger evaluating undefined vars)
+        try {
+          console.log(`rotateMinigame: will rotate from ${String(prevPath)} to ${String(storagePath)}`);
+        } catch (logErr) {
+          console.log('rotateMinigame: rotated (log failure) ' + String(logErr));
+        }
       });
       console.log("rotateMinigame: rotation complete");
     } catch (err) {
@@ -155,7 +160,7 @@ exports.rotateMinigameNow = onCall(async (data, context) => {
       const storagePath = `/minigame-previews/${chosenFile}`;
       const nowMs = Date.now();
       const now = admin.firestore.Timestamp.fromMillis(nowMs);
-      const nextAt = admin.firestore.Timestamp.fromMillis(nowMs + 3 * 60 * 60 * 1000);
+  const nextAt = admin.firestore.Timestamp.fromMillis(nowMs + 5 * 60 * 60 * 1000);
 
       tx.set(
         docRef,

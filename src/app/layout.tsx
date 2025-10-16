@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import CookieConsent from '../components/CookieConsent';
 import MobileBlocker from '../components/MobileBlocker';
+import SimpleTopbar from '../components/SimpleTopbar';
+import MaintenanceBlocker from '../components/MaintenanceBlocker';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,9 +36,11 @@ export default function RootLayout({
       >
         {/* Ensure browsers don't restore scroll automatically on reload */}
         <script dangerouslySetInnerHTML={{ __html: "try{history.scrollRestoration='manual'}catch(e){}" }} />
-        {children}
+  <SimpleTopbar />
+  {children}
         <CookieConsent />
-        <MobileBlocker />
+  <MobileBlocker />
+  <MaintenanceBlocker />
       </body>
     </html>
   );

@@ -17,10 +17,25 @@ exports.grantTickets = functions.https.onCall(async (data, ctx) => {
     throw new functions.https.HttpsError("unauthenticated", "login");
   const uid = ctx.auth.uid;
   const amount = Math.max(0, Math.floor(Number(data?.amount || 0)));
-  if (!amount) return { ok: true, added: 0 };
+  if (!amount) return { ok: true, added: 0, impl: 'functions-tickets' };
 
   const grantId = String(data?.grantId || "");
-  const day = berlinYMD();
+  const now = Date.now();
+  // Robust Berlin parse via toLocaleString (24h) and cutoff at 20:15
+  let day = berlinYMD(new Date(now));
+  try {
+    const s = new Date(now).toLocaleString('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    const m = s.match(/(\d{4})-(\d{2})-(\d{2}).*?(\d{2}):(\d{2}):(\d{2})/);
+    if (m) {
+      const hour = Number(m[4]);
+      const minute = Number(m[5]);
+      const minutes = hour * 60 + minute;
+      const cutoff = 20 * 60 + 15;
+      if (minutes >= cutoff) {
+        day = berlinYMD(new Date(now + 24 * 3600 * 1000));
+      }
+    }
+  } catch (e) { /* ignore fallback */ }
   const counterRef = db.doc(`users/${uid}/counters/daily`);
   const userRef = db.doc(`users/${uid}`);
 
@@ -50,6 +65,7 @@ exports.grantTickets = functions.https.onCall(async (data, ctx) => {
     if (grantId) {
       const gRef = db.doc(`users/${uid}/ticketGrants/${grantId}`);
       if ((await tx.get(gRef)).exists) return; // idempotent
+      console.log('[grantTickets - functions-tickets] WRITE_INTENT grantDoc', { grantPath: gRef.path, intendedDay: day, appliedAmount });
       tx.set(gRef, {
         baseAmount,
         multiplier,
@@ -66,6 +82,7 @@ exports.grantTickets = functions.https.onCall(async (data, ctx) => {
       // Nothing to add due to cap
       if (!snap.exists || prevDay !== day) {
         // start the day record if missing or old day
+        console.log('[grantTickets - functions-tickets] WRITE_INTENT counterRef set', { counterPath: counterRef.path, intendedDay: day, setTo: prevTickets });
         tx.set(counterRef, { tickets: prevTickets, day });
       }
       return;
@@ -73,9 +90,11 @@ exports.grantTickets = functions.https.onCall(async (data, ctx) => {
 
     if (!snap.exists || prevDay !== day) {
       // new day or missing doc → set absolute value
+      console.log('[grantTickets - functions-tickets] WRITE_INTENT counterRef set', { counterPath: counterRef.path, intendedDay: day, setTo: appliedAmount });
       tx.set(counterRef, { tickets: appliedAmount, day });
     } else {
       // same day → increment
+      console.log('[grantTickets - functions-tickets] WRITE_INTENT counterRef update', { counterPath: counterRef.path, intendedDay: day, incrementBy: appliedAmount });
       tx.update(counterRef, {
         tickets: admin.firestore.FieldValue.increment(appliedAmount),
         day,
@@ -84,6 +103,8 @@ exports.grantTickets = functions.https.onCall(async (data, ctx) => {
   });
 
   return { ok: true, base: amount, day, note: 'capped server-side (3/6 with 2x) if applicable' };
+  // mark implementation for debugging
+  // (this return shape will be visible to callers for troubleshooting)
 });
 
 // Tagesgesamt aggregieren

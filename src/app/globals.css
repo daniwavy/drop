@@ -78,6 +78,23 @@ body {
   0% { transform: translate3d(var(--startX, 100vw), -50%, 0); }
   100% { transform: translate3d(var(--endX, -100%), -50%, 0); }
 }
+
+/* Smooth circular roll animation for loading circle (used inline as gravityRoll) */
+@keyframes gravityRoll {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Helper class for the small loading circle used in the raffle header */
+.loading-circle {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(0,0,0,0.15);
+  border-top-color: rgba(0,0,0,0.6);
+  box-sizing: border-box;
+  animation: gravityRoll 1.2s linear infinite;
+}
 .small-ticker-wrap { position: relative; overflow: hidden; }
 .small-ticker-track { position: relative; height: 100%; }
 .small-ticker-text {
