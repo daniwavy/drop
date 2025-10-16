@@ -48,6 +48,21 @@ export default function MaintenanceBlocker() {
     return;
   }, [maintenance]);
 
+  // If user bypasses locally, immediately restore body overflow so scrolling works
+  React.useEffect(() => {
+    try {
+      if (bypassLocal) {
+        // restore to default (blank) to allow scrolling
+        document.body.style.overflow = '';
+      } else {
+        // if bypass removed while maintenance is active, lock again
+        if (maintenance) document.body.style.overflow = 'hidden';
+      }
+    } catch (e) {
+      /* noop */
+    }
+  }, [bypassLocal, maintenance]);
+
   // Allow a local bypass when developing on localhost
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   if (!maintenance || (bypassLocal && isLocalhost)) return null;
