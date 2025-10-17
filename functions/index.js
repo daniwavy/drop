@@ -33,9 +33,15 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.runRaffleDaily = exports.runRaffleNow = exports.onShardChangeAggregateDaily = exports.onDailyTicketsChange = exports.activateDoubleTickets = exports.grantTickets = exports.claimDaily = exports.dailySnapshot = exports.grantDiamonds = exports.grantCoins = exports.getStats = exports.awardTrophy = exports.enterDropCors = exports.enterDrop = void 0;
+exports.processReferralReward = exports.runRaffleDaily = exports.runRaffleNow = exports.onShardChangeAggregateDaily = exports.onDailyTicketsChange = exports.activateDoubleTickets = exports.grantTickets = exports.onUserDocumentCreate = exports.claimDaily = exports.dailySnapshot = exports.grantDiamonds = exports.grantCoins = exports.getStats = exports.awardTrophy = exports.enterDropCors = exports.enterDrop = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
+// Silence console output in Cloud Functions to minimize noisy logs
+const _consoleMethods = ['log', 'debug', 'info', 'warn', 'error'];
+for (const m of _consoleMethods) {
+    // @ts-ignore
+    console[m] = () => { };
+}
 const admin = __importStar(require("firebase-admin"));
 admin.initializeApp();
 const db = admin.firestore();
@@ -215,6 +221,63 @@ exports.claimDaily = (0, https_1.onCall)({ cors: true, region: 'us-central1' }, 
     });
 });
 const firestore_1 = require("firebase-functions/v2/firestore");
+// Defensive function deployed as the project's onUserDocumentCreate entry point.
+// Purpose: if a new user doc is created without a referral, ensure they don't
+// receive an unintended start balance. This will reset any non-zero coins on
+// create for non-referred users and write an audit entry. Idempotent via
+// `startCoinCorrectionApplied` flag.
+exports.onUserDocumentCreate = (0, firestore_1.onDocumentWritten)({ document: 'users/{uid}', region: 'us-central1' }, async (event) => {
+    try {
+        const before = event.data?.before?.data?.();
+        const after = event.data?.after?.data?.();
+        const uid = String(event.params?.uid || '');
+        // Only act on create
+        if (before)
+            return;
+        if (!after)
+            return;
+        const hasReferral = !!(after.referredBy || after.referred_by || after.referrer || after.referredCode || after.referralCode || after.referral_code);
+        if (hasReferral)
+            return; // let processReferralReward handle referrals
+        const coins = typeof after.coins === 'number' ? after.coins : 0;
+        if (coins <= 0)
+            return;
+        const userRef = db.doc(`users/${uid}`);
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(userRef);
+            if (!snap.exists)
+                return;
+            const already = !!snap.get('startCoinCorrectionApplied');
+            if (already)
+                return;
+            const current = typeof snap.get('coins') === 'number' ? snap.get('coins') : 0;
+            if (current <= 0)
+                return;
+            tx.set(userRef, {
+                coins: 0,
+                startCoinCorrectionApplied: true,
+                startCoinCorrectionAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            const auditRef = db.collection(`users/${uid}/startCoinCorrections`).doc();
+            tx.set(auditRef, {
+                previousCoins: current,
+                reason: 'non-referred-start-reset',
+                appliedBy: 'onUserDocumentCreate',
+                ts: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+        return;
+    }
+    catch (err) {
+        // Minimal logging; don't fail the create flow
+        try {
+            console.warn('[onUserDocumentCreate] error', String(err));
+        }
+        catch { }
+        return;
+    }
+});
 // Lose gutschreiben (callable, v2)
 exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }, async (req) => {
     try {
@@ -225,16 +288,7 @@ exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }
         const amountRaw = req.data?.amount;
         const amount = Math.max(0, Math.floor(Number(amountRaw ?? 0)));
         const serverNowBase = admin.firestore.Timestamp.now();
-        // Compute tickets day using Berlin 20:15 cutoff: at/after 20:15 assign to tomorrow
-        const partsForTickets = berlinParts(serverNowBase.toDate());
-        const minutesForTickets = partsForTickets.hour * 60 + partsForTickets.minute + partsForTickets.second / 60;
-        const ticketsCutoff = 20 * 60 + 15; // 20:15
-        let ticketsTarget = { year: partsForTickets.year, month: partsForTickets.month, day: partsForTickets.day };
-        if (minutesForTickets >= ticketsCutoff) {
-            ticketsTarget = shiftBerlinDay(ticketsTarget, 1);
-        }
-        const todayId = formatBerlinDay(ticketsTarget);
-        console.log('[grantTickets] COMPUTED_TICKETS_DAY', { berlinTimeParts: partsForTickets, minutesForTickets, ticketsCutoff, todayId });
+        const todayId = raffleCollectionDateId(serverNowBase.toDate());
         if (amount === 0) {
             // Even with zero amount, expose tix2x so the UI can trigger animations correctly
             let tix2xZero = false;
@@ -328,8 +382,6 @@ exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }
             const diag = { current, room: MAX_TICKETS_PER_DAY == null ? null : Math.max(0, MAX_TICKETS_PER_DAY - current), effective, base: amount, tix2x };
             // WRITES AFTER ALL READS
             if (grantId && gRef) {
-                // Debug log: which day we *intend* to write for this grant
-                console.log('[grantTickets] WRITE_INTENT grantDoc', { grantPath: gRef.path, intendedDay: todayId, amountRequested: amount, applied });
                 tx.set(gRef, {
                     status: 'done', amountRequested: amount, amountApplied: applied, multiplier, capped, day: todayId,
                     current,
@@ -339,24 +391,16 @@ exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }
                 }, { merge: true });
             }
             if (cSnap.exists) {
-                // Debug log before updating daily counter
-                console.log('[grantTickets] WRITE_INTENT counterRef', { counterPath: counterRef.path, intendedDay: todayId, incrementBy: applied });
                 tx.update(counterRef, { tickets: admin.firestore.FieldValue.increment(applied), day: todayId });
             }
             else {
-                // Debug log before setting daily counter
-                console.log('[grantTickets] WRITE_INTENT counterRef', { counterPath: counterRef.path, intendedDay: todayId, setTo: applied });
                 tx.set(counterRef, { tickets: applied, day: todayId });
             }
             // shard write for aggregate scaling
             const shard = hashUidToShard(uid, SHARDS);
             const shardRef = db.doc(`metrics_daily_shards/${todayId}/shards/${shard}`);
-            // Debug: log shard write intent
-            console.log('[grantTickets] WRITE_INTENT shardRef', { shardPath: shardRef.path, intendedDay: todayId, incrementBy: applied });
             tx.set(shardRef, { tickets: admin.firestore.FieldValue.increment(applied) }, { merge: true });
             // set dedupe marker for next burst
-            // Debug: log rtRef write intent
-            console.log('[grantTickets] WRITE_INTENT rtRef', { rtPath: rtRef.path, intendedDay: todayId, atMs: nowMsServer, bucket });
             tx.set(rtRef, { atMs: nowMsServer, day: todayId, bucket }, { merge: true });
             return { applied, multiplier, capped, day: todayId, ...diag };
         });
@@ -366,8 +410,7 @@ exports.grantTickets = (0, https_1.onCall)({ cors: true, region: 'us-central1' }
             added: res.applied,
             multiplier: res.multiplier,
             capped: res.capped,
-                day: res.day,
-                impl: 'functions-root',
+            day: res.day,
             skipped: res.skipped === true,
             current: res.current,
             room: roomReturn == null || roomReturn === undefined ? null : roomReturn,
@@ -422,61 +465,6 @@ exports.onDailyTicketsChange = (0, firestore_1.onDocumentWritten)({ document: 'u
         throw e;
     }
 });
-
-// --- rotateMinigame scheduler (moved into functions codebase so deploys update it) ---
-// Rotates the current minigame every 3 hours; reads active minigames from Firestore
-const DEFAULT_MINIGAME_PREFIX = '/minigame-previews/';
-async function listActiveMinigames() {
-    try {
-        const snap = await db.collection('minigames').where('active', '==', true).get();
-        return snap.docs.map(d => d.data()?.previewImage).filter(Boolean);
-    }
-    catch (e) {
-        console.error('[rotateMinigame] listActiveMinigames error', e && e.stack ? e.stack : e);
-        return [];
-    }
-}
-
-function pickRandomExcluding(files, prevFile) {
-    const prev = prevFile ? String(prevFile).split('/').pop() : null;
-    if (!files || files.length === 0) return null;
-    if (files.length === 1) return files[0];
-    const pool = files.filter(f => f !== prev);
-    return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : files[0];
-}
-
-// Rotate minigame at 00:00, 05:00, 10:00, 15:00 and 20:00 Berlin time
-exports.rotateMinigame = (0, scheduler_1.onSchedule)({ schedule: '0 0,5,10,15,20 * * *', timeZone: 'Europe/Berlin' }, async () => {
-    try {
-        const docRef = db.collection('config').doc('currentMinigame');
-        await db.runTransaction(async tx => {
-            const curSnap = await tx.get(docRef);
-            const prevPath = curSnap.exists ? curSnap.data()?.storagePath : null;
-            const files = await listActiveMinigames();
-            const chosen = pickRandomExcluding(files, prevPath);
-            if (!chosen) {
-                console.log('[rotateMinigame] no active minigames, skipping');
-                return;
-            }
-            const storagePath = DEFAULT_MINIGAME_PREFIX + chosen;
-            const now = admin.firestore.Timestamp.now();
-            const nextAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 60 * 1000);
-            tx.set(docRef, { id: chosen, storagePath, updatedAt: now, nextAt }, { merge: true });
-            try {
-                console.log(`[rotateMinigame] rotated from ${String(prevPath)} to ${String(storagePath)}`);
-            }
-            catch (logErr) {
-                // Fall back to simple string log if structured logging fails for any reason
-                console.log('[rotateMinigame] rotated (log failure)', String(logErr));
-            }
-        });
-        console.log('[rotateMinigame] rotation complete');
-    }
-    catch (err) {
-        console.error('[rotateMinigame] error during rotation:', err && err.stack ? err.stack : err);
-        throw err;
-    }
-});
 // Aggregate shard updates into metrics_daily/{day}
 exports.onShardChangeAggregateDaily = (0, firestore_1.onDocumentWritten)({ document: 'metrics_daily_shards/{day}/shards/{shard}', region: 'us-central1' }, async (event) => {
     const day = String(event.params?.day || '');
@@ -514,7 +502,6 @@ const berlinPartsFormatter = new Intl.DateTimeFormat('en-CA', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false,
 });
 function berlinParts(d = new Date()) {
     const parts = berlinPartsFormatter.formatToParts(d);
@@ -523,54 +510,13 @@ function berlinParts(d = new Date()) {
         if (p.type !== 'literal')
             map[p.type] = p.value;
     }
-    // Normalize hour to 0-23. Some environments return 12-hour hours plus a dayPeriod (AM/PM),
-    // or (in some Node Intl builds) a 12-hour hour without a dayPeriod. Use a robust fallback
-    // to parse a full en-CA localized string with hour12:false if needed.
-    let hour = Number(map.hour || '0');
-    const minute = Number(map.minute || '0');
-    const second = Number(map.second || '0');
-    const dayPeriod = (map.dayPeriod || '').toLowerCase();
-    if (dayPeriod === 'pm' && hour < 12)
-        hour += 12;
-    if (dayPeriod === 'am' && hour === 12)
-        hour = 0;
-    // If we found a small hour (<=12) and there was no dayPeriod, fall back to parsing a
-    // toLocaleString with hour12:false which reliably yields 24-hour hours across platforms.
-    if ((!dayPeriod || dayPeriod === '') && hour <= 12) {
-        try {
-            const s = d.toLocaleString('en-CA', {
-                timeZone: 'Europe/Berlin',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false,
-            });
-            const m = s.match(/(\d{4})-(\d{2})-(\d{2}).*?(\d{2}):(\d{2}):(\d{2})/);
-            if (m) {
-                // overwrite with reliably parsed values
-                const py = Number(m[1]);
-                const pm = Number(m[2]);
-                const pd = Number(m[3]);
-                const ph = Number(m[4]);
-                const pmin = Number(m[5]);
-                const psec = Number(m[6]);
-                return { year: py, month: pm, day: pd, hour: ph, minute: pmin, second: psec };
-            }
-        }
-        catch (e) {
-            // ignore fallback errors and return the naive parse below
-        }
-    }
     return {
         year: Number(map.year || '0'),
         month: Number(map.month || '0'),
         day: Number(map.day || '0'),
-        hour: hour,
-        minute,
-        second,
+        hour: Number(map.hour || '0'),
+        minute: Number(map.minute || '0'),
+        second: Number(map.second || '0'),
     };
 }
 function formatBerlinDay(day) {
@@ -580,46 +526,6 @@ function shiftBerlinDay(day, delta) {
     const base = new Date(Date.UTC(day.year, day.month - 1, day.day));
     base.setUTCDate(base.getUTCDate() + delta);
     return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1, day: base.getUTCDate() };
-}
-
-// Robust helper: parse Europe/Berlin wall time from a Date using toLocaleString (24h) and
-// compute tickets-day id applying a 20:15 cutoff (>= => next day).
-function ticketsDateInfoFromDate(d) {
-    try {
-        const s = d.toLocaleString('en-CA', {
-            timeZone: 'Europe/Berlin',
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-        });
-        const m = s.match(/(\d{4})-(\d{2})-(\d{2}).*?(\d{2}):(\d{2}):(\d{2})/);
-        if (m) {
-            const year = Number(m[1]);
-            const month = Number(m[2]);
-            const day = Number(m[3]);
-            const hour = Number(m[4]);
-            const minute = Number(m[5]);
-            const second = Number(m[6]);
-            const minutesForTickets = hour * 60 + minute + second / 60;
-            const cutoff = 20 * 60 + 15;
-            let targetYear = year, targetMonth = month, targetDay = day;
-            if (minutesForTickets >= cutoff) {
-                const base = new Date(Date.UTC(year, month - 1, day));
-                base.setUTCDate(base.getUTCDate() + 1);
-                targetYear = base.getUTCFullYear();
-                targetMonth = base.getUTCMonth() + 1;
-                targetDay = base.getUTCDate();
-            }
-            const todayId = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
-            return { year, month, day, hour, minute, second, minutesForTickets, cutoff, todayId, parsedString: s };
-        }
-    }
-    catch (err) {
-        console.warn('[ticketsDateInfoFromDate] parse failed', String(err));
-    }
-    // Fallback: use Intl date-only
-    const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' });
-    const todayId = fmt.format(d);
-    return { year: 0, month: 0, day: 0, hour: 0, minute: 0, second: 0, minutesForTickets: 0, cutoff: 20 * 60 + 15, todayId, parsedString: null };
 }
 function raffleCollectionDateId(d = new Date()) {
     const parts = berlinParts(d);
@@ -641,8 +547,10 @@ function raffleDrawDateId(d = new Date()) {
     }
     return formatBerlinDay(target);
 }
-
 // Return the current Berlin date id (YYYY-MM-DD) for the given instant.
+// Unlike raffleDrawDateId which applies a cutoff, this returns the calendar day
+// in Berlin for the provided moment — used so manual runs write to the day they
+// actually take place.
 function currentBerlinDateId(d = new Date()) {
     const parts = berlinParts(d);
     return formatBerlinDay({ year: parts.year, month: parts.month, day: parts.day });
@@ -808,18 +716,18 @@ async function choosePrizePoolLevel(_dayId, totalTickets) {
     }
     return { levelKey: chosen.key, items: chosen.items, desiredLevel: (current?.index ?? chosen.index) };
 }
-async function runRaffleForDate(dateIdInput) {
+async function runRaffleForDate() {
     const debug = [];
     const step = (s) => { debug.push(s); console.log('[runRaffle]', s); };
     try {
-            step('start');
-            // ALWAYS use server-side Berlin calendar day. Ignore any client overrides.
-            const serverNowTs = admin.firestore.Timestamp.now();
-            const dateId = currentBerlinDateId(serverNowTs.toDate());
-            console.log('[runRaffle] using serverBerlinDateId =', dateId);
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateId)) {
-                throw new https_1.HttpsError('invalid-argument', 'bad dateId', { dateId });
-            }
+        step('start');
+        // ALWAYS use the server-side Berlin calendar day. Ignore any client overrides.
+        const serverNow = admin.firestore.Timestamp.now();
+        const dateId = currentBerlinDateId(serverNow.toDate());
+        console.log('[runRaffle] using serverBerlinDateId =', dateId);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateId)) {
+            throw new https_1.HttpsError('invalid-argument', 'bad dateId', { dateId });
+        }
         step('query entrants');
         const q = db.collectionGroup('countersByDay').where('day', '==', dateId);
         const snap = await q.get();
@@ -903,26 +811,113 @@ async function runRaffleForDate(dateIdInput) {
     catch (e) {
         console.error('[runRaffle] error', e);
         if (e instanceof https_1.HttpsError) {
-            e.details = { ...(e.details || {}), debug };
-            throw e;
+            // attach debug to details safely
+            const err = e;
+            err.details = { ...(err.details || {}), debug };
+            throw err;
         }
-        throw new https_1.HttpsError('internal', e?.message || 'INTERNAL', { code: e?.code, stack: e?.stack, debug });
+        const errMsg = (e && typeof e.message === 'string') ? e.message : 'INTERNAL';
+        throw new https_1.HttpsError('internal', errMsg, { debug });
     }
 }
 exports.runRaffleNow = (0, https_1.onCall)({ cors: true, region: 'us-central1' }, async (req) => {
-    console.log('[runRaffleNow] called by=', req.auth?.uid || req.auth?.token?.email || 'unknown', '- ignoring client date overrides');
+    // Ignore any client-supplied date. Always use server-side Berlin calendar day.
+    console.log('[runRaffleNow] called by=', req.auth?.uid || req.auth?.token?.email || 'unknown', ' - ignoring client date overrides');
     return runRaffleForDate();
 });
 exports.runRaffleDaily = (0, scheduler_1.onSchedule)({ schedule: '0 20 * * *', timeZone: 'Europe/Berlin' }, async () => {
-    const nowTs = admin.firestore.Timestamp.now();
-    const today = currentBerlinDateId(nowTs.toDate());
-    console.log('[runRaffleDaily] trigger (server calendar day)', today);
+    // Use server-side calendar day in Berlin for scheduled raffles as well.
+    // This ensures scheduled and manual raffles both write under the same
+    // calendar day (no cutoff semantics).
     try {
+        const nowTs = admin.firestore.Timestamp.now();
+        const today = currentBerlinDateId(nowTs.toDate());
+        console.log('[runRaffleDaily] trigger (server calendar day)', today);
         const res = await runRaffleForDate();
         console.log('[runRaffleDaily] success', { winners: Object.keys(res.winners || {}).length });
     }
     catch (e) {
         console.error('[runRaffleDaily] failed', e);
         throw e;
+    }
+});
+// On new user document: if the doc contains a referral code, award both sides 500 coins.
+// NOTE: onUserCreatedGrantReferral removed. Use processReferralReward instead.
+// Centralized referral processing: creation-only, idempotent, inviter resolution + audit log.
+exports.processReferralReward = (0, firestore_1.onDocumentWritten)({ document: 'users/{uid}', region: 'us-central1' }, async (event) => {
+    try {
+        const before = event.data?.before?.data?.();
+        const after = event.data?.after?.data?.();
+        const uid = String(event.params?.uid || '');
+        // Handle documents where the referral field is present on create OR was newly added on update.
+        if (!after)
+            return;
+        const hadReferral = !!(before && (before.referredBy || before.referred_by || before.referrer || before.referredCode || before.referralCode || before.referral_code));
+        const hasReferral = !!(after.referredBy || after.referred_by || after.referrer || after.referredCode || after.referralCode || after.referral_code);
+        // If there's no referral info now, nothing to do
+        if (!hasReferral)
+            return;
+        // If referral was already present before, don't re-apply
+        if (hadReferral)
+            return;
+        // Normalize referral code from several possible fields
+        let referredBy = null;
+        const cand = after.referredBy || after.referred_by || after.referrer || after.referredCode || after.referralCode || after.referral_code;
+        if (cand && typeof cand === 'string')
+            referredBy = String(cand).trim();
+        if (!referredBy)
+            return;
+        if (referredBy.startsWith('ref_'))
+            referredBy = referredBy.slice(4);
+        const REWARD = 500;
+        // Resolve inviter UID: prefer documentId prefix, fallback to referralCode field
+        let inviterUid = null;
+        try {
+            const usersCol = db.collection('users');
+            // documentId prefix match
+            const start = referredBy;
+            const end = referredBy + '\uf8ff';
+            const q = await usersCol.where(admin.firestore.FieldPath.documentId(), '>=', start).where(admin.firestore.FieldPath.documentId(), '<=', end).limit(1).get();
+            if (!q.empty)
+                inviterUid = q.docs[0].id;
+            if (!inviterUid) {
+                const q2 = await usersCol.where('referralCode', '==', referredBy).limit(1).get();
+                if (!q2.empty)
+                    inviterUid = q2.docs[0].id;
+            }
+        }
+        catch (e) {
+            console.warn('[processReferralReward] inviter resolution failed', e);
+        }
+        // Apply rewards transactionally with an idempotency flag on the new user doc
+        await db.runTransaction(async (tx) => {
+            const newRef = db.doc(`users/${uid}`);
+            const newSnap = await tx.get(newRef);
+            if (!newSnap.exists)
+                return;
+            // If flag present, don't re-apply
+            const alreadyGiven = !!newSnap.get('referralRewardGiven');
+            if (alreadyGiven)
+                return;
+            // Give coins to the new user and mark as given
+            tx.set(newRef, {
+                coins: admin.firestore.FieldValue.increment(REWARD),
+                referralRewardGiven: true,
+                referralRewardGivenAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            if (inviterUid) {
+                const inviterRef = db.doc(`users/${inviterUid}`);
+                tx.set(inviterRef, { coins: admin.firestore.FieldValue.increment(REWARD), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                // Audit log under inviter's subcollection
+                const logRef = db.doc(`users/${inviterUid}/referralCredits/${uid}`);
+                tx.set(logRef, { referredUid: uid, amount: REWARD, ts: admin.firestore.FieldValue.serverTimestamp() });
+            }
+        });
+        console.log('[processReferralReward] applied referral reward for', uid, 'inviter=', inviterUid || 'unknown');
+    }
+    catch (err) {
+        console.error('[processReferralReward] error', err);
+        throw err;
     }
 });

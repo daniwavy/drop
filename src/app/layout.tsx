@@ -5,6 +5,7 @@ import CookieConsent from '../components/CookieConsent';
 import MobileBlocker from '../components/MobileBlocker';
 import SimpleTopbar from '../components/SimpleTopbar';
 import MaintenanceBlocker from '../components/MaintenanceBlocker';
+import HushConsole from '../components/HushConsole';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,9 +37,10 @@ export default function RootLayout({
       >
         {/* Ensure browsers don't restore scroll automatically on reload */}
         <script dangerouslySetInnerHTML={{ __html: "try{history.scrollRestoration='manual'}catch(e){}" }} />
-  <SimpleTopbar />
+    <SimpleTopbar />
+    <HushConsole />
   {children}
-        <CookieConsent />
+    <CookieConsent />
   <MobileBlocker />
   <MaintenanceBlocker />
       </body>

@@ -26,12 +26,20 @@ import { db } from "../../lib/firebase";
 // ...existing imports...
 // Inline referral functions
 async function ensureReferralCodeForUser(uid: string): Promise<string> {
-  // Generate or get existing referral code
-  return `ref_${uid.substring(0, 8)}`;
+  // Persist a core referral code (without the 'ref_' prefix) so server functions can resolve inviter.
+  const core = uid.substring(0, 8);
+  try {
+    const userRef = doc(db, 'users', uid);
+    await setDoc(userRef, { referralCode: core, updatedAt: serverTimestamp() }, { merge: true });
+  } catch (e) {
+    console.warn('[referral] could not persist referralCode for user', uid, e);
+  }
+  return core;
 }
 
 function buildReferralLink(code: string): string {
-  return `${window.location.origin}/drop?ref=${code}`;
+  const display = code.startsWith('ref_') ? code : `ref_${code}`;
+  return `${window.location.origin}/drop?ref=${display}`;
 }
 
 async function processPendingReferral(uid: string): Promise<void> {
@@ -152,6 +160,8 @@ async function upsertUser(u: User) {
       displayName: u.displayName ?? null,
       photoURL: u.photoURL ?? null,
       // create coins if missing without overwriting existing value
+      // mark new users as non-partner by default
+      isPartner: false,
       updatedAt: serverTimestamp(),
     },
     { merge: true }
@@ -171,6 +181,8 @@ async function ensureUserDoc(u: User) {
       gamesSelected: false,
       // Items ist erlaubt und soll sofort vorhanden sein
       items: { double_xp: 0, double_tickets: 0 },
+      // mark brand-new accounts as non-partner by default
+      isPartner: false,
       updatedAt: serverTimestamp(),
     });
     return;

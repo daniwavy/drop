@@ -1785,7 +1785,7 @@ export default function DropPage() {
   // Test grid on second screen
   const [gridCount, setGridCount] = useState<number>(6);
   const [gridImages, setGridImages] = useState<string[]>([]);
-  const [gridItems, setGridItems] = useState<Array<{ id?: string | null; src: string; toMs?: number | null; headline?: string | null; subtitle?: string | null; content?: string | null; interval?: string | undefined }>>([]);
+  const [gridItems, setGridItems] = useState<Array<{ id?: string | null; src: string; toMs?: number | null; headline?: string | null; subtitle?: string | null; content?: string | null; interval?: string | undefined; withCode?: string | null }>>([]);
   const [activeTile, setActiveTile] = useState<number | null>(null);
   const [popupLoading, setPopupLoading] = useState<boolean>(false);
   // Prevent page scroll when grid popup is open
@@ -2180,7 +2180,7 @@ export default function DropPage() {
               entries.push({ ...(data as any), __id: docSnap.id });
             });
 
-            const itemsArr: Array<{ id?: string | null; src: string; toMs?: number | null; headline?: string | null; subtitle?: string | null; content?: string | null }> = [];
+            const itemsArr: Array<{ id?: string | null; src: string; toMs?: number | null; headline?: string | null; subtitle?: string | null; content?: string | null; interval?: string | undefined; withCode?: string | null }> = [];
             const nowServerMs = serverNowBaseRef.current + (performance.now() - perfBaseRef.current);
             for (const node of entries) {
               try {
@@ -2223,15 +2223,15 @@ export default function DropPage() {
                 const headline = node?.headline ?? node?.title ?? node?.name ?? null;
                 const subtitle = node?.subtitle ?? node?.desc ?? node?.description ?? null;
                 const content = node?.content ?? node?.text ?? node?.body ?? null;
+                const withCode = (node?.withCode ?? node?.with_code ?? node?.withcode ?? null) as string | null;
                 if (!srcRaw) {
                   const interval = (node?.interval ?? node?.public?.interval) || undefined;
-                  itemsArr.push({ id: node?.__id ?? node?.id ?? null, src: '/error-frame.svg', toMs: entryToMs, headline, subtitle, content, interval });
+                  itemsArr.push({ id: node?.__id ?? node?.id ?? null, src: '/error-frame.svg', toMs: entryToMs, headline, subtitle, content, interval, withCode });
                   continue;
                 }
                 const src = String(srcRaw);
                 // Gate by optional withCode: if entry defines a withCode and it's non-empty,
                 // only show this entry if the current user was referred by that code.
-                const withCode = (node?.withCode ?? node?.with_code ?? node?.withcode ?? null) as string | null;
                 if (withCode && String(withCode).trim().length > 0) {
                   try { console.debug('[drop] gating: entry has withCode', { entryId: node?.__id ?? node?.id ?? null, withCode }); } catch {}
                   // if user has no referral code, hide gated entries
@@ -2246,7 +2246,7 @@ export default function DropPage() {
                   try {
                     const resolved = await getCachedDownloadURL(src);
                     const interval = (node?.interval ?? node?.public?.interval) || undefined;
-                    itemsArr.push({ id: node?.__id ?? node?.id ?? null, src: resolved || '/error-frame.svg', toMs: entryToMs, headline, subtitle, content, interval });
+                    itemsArr.push({ id: node?.__id ?? node?.id ?? null, src: resolved || '/error-frame.svg', toMs: entryToMs, headline, subtitle, content, interval, withCode });
                     continue;
                   } catch (err) {
                     console.warn('[drop] failed to resolve storage path', src, err);
@@ -2255,7 +2255,7 @@ export default function DropPage() {
                   }
                 }
                 const interval2 = (node?.interval ?? node?.public?.interval) || undefined;
-                itemsArr.push({ id: node?.__id ?? node?.id ?? null, src, toMs: entryToMs, headline, subtitle, content, interval: interval2 });
+                itemsArr.push({ id: node?.__id ?? node?.id ?? null, src, toMs: entryToMs, headline, subtitle, content, interval: interval2, withCode });
               } catch (err) {
                 itemsArr.push({ id: null, src: '/error-frame.svg', toMs: null, headline: null, subtitle: null, content: null });
               }
@@ -4758,6 +4758,10 @@ function currentDailyPos() {
                           />
                           {/* Countdown (top-right) */}
                           <TileCountdown toMs={gridItems[i]?.toMs} />
+                          {/* Exclusive badge when entry is gated by withCode */}
+                          {gridItems[i]?.withCode ? (
+                            <div className="absolute left-3 top-3 z-20 px-2 py-1 rounded-full bg-yellow-400 text-black text-xs font-semibold exclusive-badge">Exklusiver Drop</div>
+                          ) : null}
                         </div>
                       </CardFrame>
                     </div>
@@ -5074,6 +5078,7 @@ function currentDailyPos() {
                   <li><a href="#" className="hover:text-white transition-colors">Discord</a></li>
                   <li><a href="#" className="hover:text-white transition-colors">Twitter</a></li>
                   <li><a href="#" className="hover:text-white transition-colors">Instagram</a></li>
+                  <li><a href="/partners/dashboard" className="hover:text-white transition-colors">Partner werden</a></li>
                 </ul>
               </div>
             </div>

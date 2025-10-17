@@ -1,5 +1,11 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+// Silence console output in Cloud Functions to minimize noisy logs
+const _consoleMethods = ['log','debug','info','warn','error'] as const;
+for (const m of _consoleMethods) {
+  // @ts-ignore
+  console[m] = () => {};
+}
 import * as admin from "firebase-admin";
 
 admin.initializeApp();
@@ -209,6 +215,58 @@ export const claimDaily = onCall({ cors: true, region: 'us-central1' }, async (r
 });
 
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
+
+// Defensive function deployed as the project's onUserDocumentCreate entry point.
+// Purpose: if a new user doc is created without a referral, ensure they don't
+// receive an unintended start balance. This will reset any non-zero coins on
+// create for non-referred users and write an audit entry. Idempotent via
+// `startCoinCorrectionApplied` flag.
+export const onUserDocumentCreate = onDocumentWritten({ document: 'users/{uid}', region: 'us-central1' }, async (event) => {
+  try {
+    const before = event.data?.before?.data?.();
+    const after = event.data?.after?.data?.();
+    const uid = String(event.params?.uid || '');
+    // Only act on create
+    if (before) return;
+    if (!after) return;
+
+    const hasReferral = !!(after.referredBy || after.referred_by || after.referrer || after.referredCode || after.referralCode || after.referral_code);
+    if (hasReferral) return; // let processReferralReward handle referrals
+
+    const coins = typeof after.coins === 'number' ? after.coins : 0;
+    if (coins <= 0) return;
+
+    const userRef = db.doc(`users/${uid}`);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists) return;
+      const already = !!snap.get('startCoinCorrectionApplied');
+      if (already) return;
+      const current = typeof snap.get('coins') === 'number' ? snap.get('coins') : 0;
+      if (current <= 0) return;
+
+      tx.set(userRef, {
+        coins: 0,
+        startCoinCorrectionApplied: true,
+        startCoinCorrectionAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      const auditRef = db.collection(`users/${uid}/startCoinCorrections`).doc();
+      tx.set(auditRef, {
+        previousCoins: current,
+        reason: 'non-referred-start-reset',
+        appliedBy: 'onUserDocumentCreate',
+        ts: admin.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    return;
+  } catch (err) {
+    // Minimal logging; don't fail the create flow
+    try { console.warn('[onUserDocumentCreate] error', String(err)); } catch {}
+    return;
+  }
+});
 
 // Lose gutschreiben (callable, v2)
 export const grantTickets = onCall({ cors: true, region: 'us-central1' }, async (req) => {
@@ -839,5 +897,84 @@ export const runRaffleDaily = onSchedule({ schedule: '0 20 * * *', timeZone: 'Eu
   } catch (e: unknown) {
     console.error('[runRaffleDaily] failed', e);
     throw e;
+  }
+});
+
+// On new user document: if the doc contains a referral code, award both sides 500 coins.
+// NOTE: onUserCreatedGrantReferral removed. Use processReferralReward instead.
+// Centralized referral processing: creation-only, idempotent, inviter resolution + audit log.
+export const processReferralReward = onDocumentWritten({ document: 'users/{uid}', region: 'us-central1' }, async (event) => {
+  try {
+  const before = event.data?.before?.data?.() as FirebaseFirestore.DocumentData | undefined;
+  const after = event.data?.after?.data?.() as FirebaseFirestore.DocumentData | undefined;
+  const uid = String((event.params as { uid?: string })?.uid || '');
+
+  // Handle documents where the referral field is present on create OR was newly added on update.
+  if (!after) return;
+  const hadReferral = !!(before && (before.referredBy || before.referred_by || before.referrer || before.referredCode || before.referralCode || before.referral_code));
+  const hasReferral = !!(after.referredBy || after.referred_by || after.referrer || after.referredCode || after.referralCode || after.referral_code);
+  // If there's no referral info now, nothing to do
+  if (!hasReferral) return;
+  // If referral was already present before, don't re-apply
+  if (hadReferral) return;
+
+    // Normalize referral code from several possible fields
+    let referredBy: string | null = null;
+    const cand = after.referredBy || after.referred_by || after.referrer || after.referredCode || after.referralCode || after.referral_code;
+    if (cand && typeof cand === 'string') referredBy = String(cand).trim();
+    if (!referredBy) return;
+    if (referredBy.startsWith('ref_')) referredBy = referredBy.slice(4);
+
+    const REWARD = 500;
+
+    // Resolve inviter UID: prefer documentId prefix, fallback to referralCode field
+    let inviterUid: string | null = null;
+    try {
+      const usersCol = db.collection('users');
+      // documentId prefix match
+      const start = referredBy;
+      const end = referredBy + '\uf8ff';
+      const q = await usersCol.where(admin.firestore.FieldPath.documentId(), '>=', start).where(admin.firestore.FieldPath.documentId(), '<=', end).limit(1).get();
+      if (!q.empty) inviterUid = q.docs[0].id;
+      if (!inviterUid) {
+        const q2 = await usersCol.where('referralCode', '==', referredBy).limit(1).get();
+        if (!q2.empty) inviterUid = q2.docs[0].id;
+      }
+    } catch (e) {
+      console.warn('[processReferralReward] inviter resolution failed', e);
+    }
+
+    // Apply rewards transactionally with an idempotency flag on the new user doc
+    await db.runTransaction(async (tx) => {
+      const newRef = db.doc(`users/${uid}`);
+      const newSnap = await tx.get(newRef);
+      if (!newSnap.exists) return;
+
+      // If flag present, don't re-apply
+      const alreadyGiven = !!newSnap.get('referralRewardGiven');
+      if (alreadyGiven) return;
+
+      // Give coins to the new user and mark as given
+      tx.set(newRef, {
+        coins: admin.firestore.FieldValue.increment(REWARD),
+        referralRewardGiven: true,
+        referralRewardGivenAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      if (inviterUid) {
+        const inviterRef = db.doc(`users/${inviterUid}`);
+        tx.set(inviterRef, { coins: admin.firestore.FieldValue.increment(REWARD), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+
+        // Audit log under inviter's subcollection
+        const logRef = db.doc(`users/${inviterUid}/referralCredits/${uid}`);
+        tx.set(logRef, { referredUid: uid, amount: REWARD, ts: admin.firestore.FieldValue.serverTimestamp() });
+      }
+    });
+
+    console.log('[processReferralReward] applied referral reward for', uid, 'inviter=', inviterUid || 'unknown');
+  } catch (err) {
+    console.error('[processReferralReward] error', err);
+    throw err;
   }
 });
