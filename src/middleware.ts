@@ -7,6 +7,11 @@ export function middleware(req: NextRequest) {
     const maintenance = process.env.MAINTENANCE === '1' || process.env.MAINTENANCE === 'true';
     if (!maintenance) return NextResponse.next();
 
+    // If the request originates from localhost/127.0.0.1, skip maintenance enforcement
+    // This makes local development unaffected by maintenance mode.
+    const host = req.nextUrl.hostname || req.headers.get('host') || '';
+    if (host.includes('localhost') || host.includes('127.0.0.1')) return NextResponse.next();
+
     const url = req.nextUrl.clone();
     // allow direct access to the maintenance page itself
     if (url.pathname === '/maintenance') return NextResponse.next();
@@ -22,7 +27,7 @@ export function middleware(req: NextRequest) {
     // redirect all other requests to the maintenance page
     url.pathname = '/maintenance';
     return NextResponse.rewrite(url);
-  } catch (e) {
+  } catch {
     // on error, don't block the site
     return NextResponse.next();
   }

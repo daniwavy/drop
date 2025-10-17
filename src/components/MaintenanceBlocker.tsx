@@ -18,9 +18,15 @@ export default function MaintenanceBlocker() {
           maint = Boolean(d.maintenance || d.maintenante || false);
         }
         if (maint) {
+          // Skip redirect on localhost so local development is unaffected.
+          try {
+            const host = typeof window !== 'undefined' ? window.location.hostname : '';
+            if (host === 'localhost' || host === '127.0.0.1') {
+              return;
+            }
+          } catch {}
+
           // If maintenance is active, navigate to the centralized server maintenance page.
-          // The server middleware already rewrites initial requests, but a client-side
-          // redirect is useful for SPA navigation after the app has loaded.
           try {
             router.replace('/maintenance');
           } catch {
