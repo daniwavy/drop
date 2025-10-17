@@ -203,6 +203,20 @@ function RaffleTestTerminal({
   function mulberry32(a: number) { return function () { let t = (a += 0x6D2B79F5); t = Math.imul(t ^ (t >>> 15), 1 | t); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
   function detRand(uid: string, salt: string, seedStr: string) { const s = xmur3(`${seedStr}|${uid}|${salt}`)(); return mulberry32(s)(); }
 
+  // Referral debug shown in terminal (read from sessionStorage)
+  const [rtRefDebug, setRtRefDebug] = useState<string>(() => {
+    try { return sessionStorage.getItem('__drop_ref_debug_str') || ''; } catch { return ''; }
+  });
+  useEffect(() => {
+    const onStorage = (ev: StorageEvent) => {
+      try {
+        if (ev.key === '__drop_ref_debug_str') setRtRefDebug(ev.newValue || '');
+      } catch {}
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   function weightedSampleWithoutReplacement(ents: Array<{ uid: string; w: number }>, k: number, seedStr: string, salt: string) {
     const scored = ents.map(e => {
       const u = Math.max(1e-12, detRand(e.uid, salt, seedStr));
@@ -310,6 +324,7 @@ function RaffleTestTerminal({
 
   // Debug Info Text
   const [debugText, setDebugText] = useState<string>('');
+  const [refDebugText, setRefDebugText] = useState<string>('');
 
   // Reference to shared base variable
   const serverNowBaseRef = useRef<number>(0);
@@ -420,6 +435,12 @@ function RaffleTestTerminal({
           `Cookie aktiviert: ${navigator.cookieEnabled ? 'Ja' : 'Nein'}`
         ].join('\n');
         setDebugText(text);
+        try {
+          const r = sessionStorage.getItem('__drop_ref_debug_str') || '';
+          setRefDebugText(r);
+          const termEl = document.getElementById('__raffle_terminal_ref_debug') as HTMLDivElement | null;
+          if (termEl) termEl.textContent = r;
+        } catch {}
       } catch (e) {
         console.error('[debug] update failed', e);
       }
@@ -440,6 +461,8 @@ function RaffleTestTerminal({
       <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(86vw,810px)] max-h-[81vh] p-4 overflow-auto visible-scrollbar">
         {/* close button intentionally removed - use overlay click or programmatic close */}
         <div className="text-lg font-bold mb-2">Raffle Test-Terminal</div>
+  {/* Referral debug target (dev-only) */}
+  <div id="__raffle_terminal_ref_debug" className="text-xs font-mono text-black/70 bg-black/5 p-2 rounded mb-2" style={{whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{rtRefDebug}</div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
           <label className="text-sm">
@@ -1151,25 +1174,10 @@ export default function DropPage() {
   }, []);
 
   // Ensure we land at the top immediately on first paint (stronger than the post-hydration effect)
-  useLayoutEffect(() => {
-    try {
-      const docEl = document.scrollingElement as HTMLElement | null;
-      if (docEl) docEl.scrollTo?.({ top: 0 });
-      const sc = scrollContainerRef.current;
-      if (sc) sc.scrollTop = 0;
-    } catch {}
-    // run once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Ensure reload (F5) starts at top: prefer manual scroll restoration and
-  // reset both document and inner container scroll on first hydration.
   useEffect(() => {
-    if (!isHydrated) return;
     try {
-      if (history && 'scrollRestoration' in history) {
-        try { (history as any).scrollRestoration = 'manual'; } catch { /* ignore */ }
-      }
+      const r = sessionStorage.getItem('__drop_ref_debug_str') || '';
+      setRefDebugText(r);
     } catch {}
 
     try {
@@ -1235,7 +1243,9 @@ export default function DropPage() {
       console.log('[referral-debug] Extracted ref code:', refCode);
       console.log('[referral-debug] Code length:', refCode?.length);
       
-      if (refCode && typeof refCode === 'string' && refCode.length === 6) {
+  // Accept common referral code lengths (e.g. 6 or 8 chars). Relax strict check so codes like
+  // `wqY6A1eb` (8) and `xmyFNT` (6) are accepted. Range 4..12 is a safe heuristic.
+  if (refCode && typeof refCode === 'string' && refCode.length >= 4 && refCode.length <= 12) {
         // Speichere Referral Code in sessionStorage für spätere Verwendung
         const referralData = {
           code: refCode,
@@ -2091,9 +2101,73 @@ export default function DropPage() {
     try {
       const fs = getFirestore();
       const colRef = collection(fs, 'drop-vault-entries');
+      // current auth uid (reload effect when user logs in/out)
+      const uid = authUser?.uid ?? null;
+
+      // Compute user's referral code (from sessionStorage pendingReferral or users/{uid})
+      let currentUserReferralCode: string | null = null;
+      const loadUserReferral = async () => {
+        try {
+          if (typeof window !== 'undefined') {
+            const pending = sessionStorage.getItem('pendingReferral');
+            if (pending) {
+              try {
+                const p = JSON.parse(pending);
+                if (p && typeof p.code === 'string') {
+                  currentUserReferralCode = String(p.code);
+                  try { console.debug('[drop] loaded pendingReferral from sessionStorage', { pendingCode: currentUserReferralCode }); } catch {}
+                    try {
+                      const val = `pending=${String(p.code)} uid=${String(uid || '')} loaded=${String(currentUserReferralCode)}`;
+                      try { sessionStorage.setItem('__drop_ref_debug_str', val); } catch {}
+                    } catch {}
+                  return;
+                }
+              } catch {}
+            }
+          }
+          if (uid) {
+            try {
+              const uSnap = await getDoc(doc(fs, 'users', uid));
+              if (uSnap.exists()) {
+                const ud = uSnap.data() || {};
+                const candidates = [
+                  ud.referredBy,
+                  ud.referred_by,
+                  ud.referredFrom,
+                  ud.referred_from,
+                  ud.referrer,
+                  ud.referralCode,
+                  ud.referral_code,
+                  ud.referredCode,
+                  ud.referred_code,
+                ];
+                for (const c of candidates) {
+                  if (typeof c === 'string' && c.length > 0) {
+                    currentUserReferralCode = c;
+                    try { console.debug('[drop] loaded referral from users/{uid}', { uid, currentUserReferralCode }); } catch {}
+                    try {
+                      const val = `pending=${String(sessionStorage.getItem('pendingReferral') || '')} uid=${String(uid || '')} loaded=${String(currentUserReferralCode)}`;
+                      try { sessionStorage.setItem('__drop_ref_debug_str', val); } catch {}
+                    } catch {}
+                    break;
+                  }
+                }
+              }
+            } catch (e) {
+              /* ignore */
+            }
+          }
+        } catch { /* ignore */ }
+      };
+
+      // initial load
+      loadUserReferral();
+
       const unsub = onSnapshot(colRef, (snap) => {
         (async () => {
           try {
+            // ensure latest referral info available before processing entries
+            await loadUserReferral();
             if (snap.empty) {
               setGridImages([]);
               setGridCount(0);
@@ -2155,6 +2229,19 @@ export default function DropPage() {
                   continue;
                 }
                 const src = String(srcRaw);
+                // Gate by optional withCode: if entry defines a withCode and it's non-empty,
+                // only show this entry if the current user was referred by that code.
+                const withCode = (node?.withCode ?? node?.with_code ?? node?.withcode ?? null) as string | null;
+                if (withCode && String(withCode).trim().length > 0) {
+                  try { console.debug('[drop] gating: entry has withCode', { entryId: node?.__id ?? node?.id ?? null, withCode }); } catch {}
+                  // if user has no referral code, hide gated entries
+                  if (!currentUserReferralCode || String(currentUserReferralCode).trim() !== String(withCode).trim()) {
+                    try { console.debug('[drop] gating: skipping entry due to mismatch', { entryId: node?.__id ?? node?.id ?? null, currentUserReferralCode, withCode }); } catch {}
+                    // skip this entry
+                    continue;
+                  }
+                  try { console.debug('[drop] gating: allowed entry as referral matches', { entryId: node?.__id ?? node?.id ?? null, currentUserReferralCode, withCode }); } catch {}
+                }
                 if (!/^https?:\/\//i.test(src) && !src.startsWith('/')) {
                   try {
                     const resolved = await getCachedDownloadURL(src);
@@ -2188,7 +2275,7 @@ export default function DropPage() {
     } catch (e) {
       console.warn('[drop] failed to subscribe to config/drop-vault', e);
     }
-  }, []);
+  }, [authUser?.uid]);
   // FAQ open state: which item is expanded (null = none)
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   // FAQ tab state (grouped sections)
@@ -4177,6 +4264,13 @@ function currentDailyPos() {
                       }}
                     />
                   </div>
+                  {/* Sunburst background behind the collage (dev: subtle decorative element) */}
+                  <img
+                    src="/sunburst.svg"
+                    alt=""
+                    aria-hidden="true"
+                    className="collage-sunburst"
+                  />
                   {/* Drop level inline bar */}
                   {(() => {
                     const pct = poolProgress.pct;

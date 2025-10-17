@@ -339,3 +339,37 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
   * { animation-duration: 0s !important; }
 }
 
+/* Sunburst behind the collage: centered, slow rotation + subtle glow */
+.collage-sunburst {
+  position: absolute;
+  left: 50%;
+  top: 50%; /* center vertically behind the collage */
+  transform: translate(-50%, -50%) scale(0.8);
+  width: 100%; /* smaller */
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+  z-index: -40; /* push further into the background */
+  opacity: 0.42;
+  will-change: transform, filter;
+  animation: sunburstRotate 18s linear infinite, sunburstGlow 3.6s ease-in-out infinite; /* faster rotation */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+@keyframes sunburstRotate {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.8); }
+  100% { transform: translate(-50%, -50%) rotate(360deg) scale(0.8); }
+}
+
+@keyframes sunburstGlow {
+  0% { filter: drop-shadow(0 0 0 rgba(255,215,0,0)); }
+  40% { filter: drop-shadow(0 0 26px rgba(255,230,120,0.95)) drop-shadow(0 0 8px rgba(255,200,80,0.6)); }
+  60% { filter: drop-shadow(0 0 18px rgba(255,230,120,0.7)) drop-shadow(0 0 6px rgba(255,200,80,0.45)); }
+  100% { filter: drop-shadow(0 0 0 rgba(255,215,0,0)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collage-sunburst { animation: none !important; }
+}
+

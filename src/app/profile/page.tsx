@@ -35,8 +35,65 @@ function buildReferralLink(code: string): string {
 }
 
 async function processPendingReferral(uid: string): Promise<void> {
-  // Process referral if needed - placeholder implementation
-  console.log('Processing referral for', uid);
+  try {
+    if (!uid) return;
+    // Try to read pending referral from sessionStorage (set by landing with ?ref=CODE)
+    let pending: any = null;
+    try {
+      if (typeof window !== 'undefined') {
+        // sessionStorage (preferred)
+        const rawSession = sessionStorage.getItem('pendingReferral');
+        if (rawSession) pending = JSON.parse(rawSession);
+        // fallback to localStorage (in case sessionStorage was lost during redirect)
+        if (!pending) {
+          const rawLocal = localStorage.getItem('pendingReferral');
+          if (rawLocal) pending = JSON.parse(rawLocal);
+        }
+        // fallback to cookie
+        if (!pending) {
+          const m = document.cookie.match(/pendingReferral=([^;]+)/);
+          if (m && m[1]) {
+            try { pending = JSON.parse(decodeURIComponent(m[1])); } catch {}
+          }
+        }
+        // fallback to URL param
+        if (!pending) {
+          try {
+            const u = new URL(window.location.href);
+            const ref = u.searchParams.get('ref');
+            if (ref) pending = { code: ref };
+          } catch {}
+        }
+      }
+    } catch { pending = null; }
+
+  let code = pending && typeof pending.code === 'string' ? String(pending.code).trim() : null;
+  if (code && code.startsWith('ref_')) code = code.slice(4);
+    if (!code) return;
+
+    const userRef = doc(db, 'users', uid);
+    try {
+      const snap = await getDoc(userRef);
+      const data: any = snap.exists() ? (snap.data() || {}) : {};
+      // If referredBy already present, don't overwrite
+      if (data && (data.referredBy || data.referred_by || data.referrer)) {
+        // already recorded
+        try { sessionStorage.removeItem('pendingReferral'); } catch {}
+        return;
+      }
+      // Persist referral info: only set `referredBy` (strip any 'ref_' prefix)
+      const existingInviter = data && (data.referredBy);
+      if (!existingInviter) {
+        await setDoc(userRef, { referredBy: code, referred_at: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
+      }
+      try { sessionStorage.removeItem('pendingReferral'); } catch {}
+      console.log('[referral] persisted referredBy for', uid, code);
+    } catch (e) {
+      console.error('[referral] failed to persist pending referral', e);
+    }
+  } catch (err) {
+    console.error('[referral] processPendingReferral error', err);
+  }
 }
 // Firebase storage removed - using local avatars from /public/pfpfs
 
