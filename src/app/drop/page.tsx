@@ -2738,12 +2738,24 @@ export default function DropPage() {
       }
     }
   }, [collageReady, minigameResolved, gameUrl, gameReady, prizePoolLoaded, initialLoadDone, poolLevelServerLoaded]);
+  
+  // Check for reduced motion preference (early declaration for all animations)
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
+    const handleChange = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
   // cycle logo animation: 0..5 every 10s (6 variants)
   const [logoAnim, setLogoAnim] = useState<number>(0);
   useEffect(() => {
+    if (prefersReducedMotion) return;
     const id = setInterval(() => setLogoAnim(v => (v + 1) % 6), 10000);
     return () => clearInterval(id);
-  }, []);
+  }, [prefersReducedMotion]);
 
   // --- Animation Refs and helpers ---
   const coinBadgeRef = useRef<HTMLDivElement | null>(null);
@@ -2961,6 +2973,19 @@ export default function DropPage() {
       window.clearTimeout(retry);
     };
   }, []);
+  
+  // Block scroll when adblock modal is visible
+  useEffect(() => {
+    if (adblockDetected && !adblockDismissed) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+      };
+    }
+  }, [adblockDetected, adblockDismissed]);
+
   const [claimError, setClaimError] = useState<string | null>(null);
   // --- Item System --- (Firestore-driven)
   // Firestore: config/shop
@@ -4142,21 +4167,28 @@ function currentDailyPos() {
 `,
           backgroundSize: '160% 160%, 160% 160%, 160% 160%, 170% 170%, 170% 170%, 180% 180%, 160% 160%, 200% 200%, 200% 200%',
           backgroundPosition: 'var(--bgPos, 0% 0%), var(--bgPos, 100% 0%), var(--bgPos, 50% 100%), var(--bgPos, 10% 85%), var(--bgPos, 90% 80%), var(--bgPos, 50% 40%), var(--bgPos, 5% 50%), var(--bgPos, 0% 50%), var(--bgPos, 100% 50%)',
-          animation: 'gradientShift 28s ease-in-out infinite alternate',
+          animation: prefersReducedMotion ? 'none' : 'gradientShift 28s ease-in-out infinite alternate',
           willChange: 'background-position',
           backfaceVisibility: 'hidden'
         }}
       />
       {/* Global scanline overlay */}
-      {typeof window !== 'undefined' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches && (
-        <div aria-hidden className="absolute inset-0 z-[1] pointer-events-none scanlines" style={{ willChange: 'auto', backfaceVisibility: 'hidden' }} />
+      {!prefersReducedMotion && (
+        <div 
+          aria-hidden 
+          className="absolute inset-0 z-[1] pointer-events-none scanlines" 
+          style={{ 
+            willChange: 'auto', 
+            backfaceVisibility: 'hidden'
+          }} 
+        />
       )}
 
       {/* Adblock Modal */}
       {adblockDetected && !adblockDismissed && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/80" />
-          <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[640px] p-6">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center pointer-events-auto" style={{ pointerEvents: 'auto' }}>
+          <div className="absolute inset-0 bg-black/80 pointer-events-auto" style={{ pointerEvents: 'auto' }} />
+          <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[640px] p-6 pointer-events-auto" style={{ pointerEvents: 'auto' }}>
             <div className="absolute -top-3 -right-3">
               {/* close button removed - rely on overlay click/programmatic close */}
             </div>
@@ -4390,7 +4422,7 @@ function currentDailyPos() {
                                   <div className="absolute inset-0 border-2 border-black/30 rounded-full"></div>
                                   {/* Gravity-affected loading segment */}
                                   <div className="absolute inset-0 border-2 border-transparent border-t-black rounded-full" style={{ 
-                                    animation: 'gravityRoll 2s linear infinite',
+                                    animation: prefersReducedMotion ? 'none' : 'gravityRoll 2s linear infinite',
                                     transformOrigin: 'center'
                                   }}></div>
                                 </div>
@@ -4749,13 +4781,13 @@ function currentDailyPos() {
 `,
         backgroundSize: '160% 160%, 160% 160%, 160% 160%, 170% 170%, 170% 170%, 180% 180%, 160% 160%, 200% 200%, 200% 200%',
         backgroundPosition: 'var(--bgPos, 0% 0%), var(--bgPos, 100% 0%), var(--bgPos, 50% 100%), var(--bgPos, 10% 85%), var(--bgPos, 90% 80%), var(--bgPos, 50% 40%), var(--bgPos, 5% 50%), var(--bgPos, 0% 50%), var(--bgPos, 100% 50%)',
-        animation: 'gradientShift 28s ease-in-out infinite alternate',
+        animation: prefersReducedMotion ? 'none' : 'gradientShift 28s ease-in-out infinite alternate',
         willChange: 'background-position',
         backfaceVisibility: 'hidden'
       }}
     />
     {/* Global scanline overlay */}
-    {typeof window !== 'undefined' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches && (
+    {!prefersReducedMotion && (
       <div aria-hidden className="absolute inset-0 z-[1] pointer-events-none scanlines" style={{ willChange: 'auto', backfaceVisibility: 'hidden' }} />
     )}
 
