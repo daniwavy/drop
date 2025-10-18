@@ -20,6 +20,16 @@
   }
 }
 
+/* GPU acceleration for all animated elements */
+*[style*="animation:"],
+*[style*="transform:"],
+.animated,
+[data-animated] {
+  will-change: auto;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -183,16 +193,15 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
 
 /* (removed) Footer background logo helper - no longer used */
 
-/* scanlines overlay (subtle) */
+/* scanlines overlay (subtle) - static, not animated */
 .scanlines {
   pointer-events: none;
   background-image: repeating-linear-gradient(to bottom, rgba(255,255,255,0.6) 0 1px, transparent 1px 3px);
   background-size: 100% 3px;
+  background-position: 0 0;
   opacity: 0.06;
-  animation: scanDrift 12s linear infinite;
+  contain: layout style paint;
 }
-
-@keyframes scanDrift { 0% { background-position: 0 0 } 100% { background-position: 0 12px } }
 
 /* animated background shift for radial gradient blobs */
 @keyframes gradientShift {
@@ -296,7 +305,7 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
 }
 
 .drop-loader-logo {
-  animation: loaderPulseGlow 2.2s ease-in-out infinite;
+  animation: loaderPulseGlow 1.8s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -310,15 +319,10 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
   100% { transform: translateY(0); }
 }
 
-@keyframes vaultShimmer {
-  0% { filter: drop-shadow(0 0 0 rgba(255,215,0,0)); }
-  50% { filter: drop-shadow(0 0 24px rgba(255,215,0,0.95)) drop-shadow(0 0 8px rgba(255,215,0,0.6)); }
-  100% { filter: drop-shadow(0 0 0 rgba(255,215,0,0)); }
-}
-
 .vault-title {
-  animation: vaultFloat 4s ease-in-out infinite, vaultShimmer 4s ease-in-out infinite;
-  will-change: transform, filter;
+  animation: vaultFloat 3s ease-in-out infinite;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -333,7 +337,7 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
 }
 .exclusive-badge {
   will-change: transform, box-shadow, filter;
-  animation: exclusiveBadgePulse 2200ms ease-in-out infinite;
+  animation: exclusiveBadgePulse 1800ms ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .exclusive-badge { animation: none !important; }
@@ -365,22 +369,16 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
   user-select: none;
   z-index: -40; /* push further into the background */
   opacity: 0.42;
-  will-change: transform, filter;
-  animation: sunburstRotate 18s linear infinite, sunburstGlow 3.6s ease-in-out infinite; /* faster rotation */
+  will-change: transform;
+  animation: sunburstRotate 18s linear infinite;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  contain: layout style paint;
 }
 
 @keyframes sunburstRotate {
   0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.8); }
   100% { transform: translate(-50%, -50%) rotate(360deg) scale(0.8); }
-}
-
-@keyframes sunburstGlow {
-  0% { filter: drop-shadow(0 0 0 rgba(255,215,0,0)); }
-  40% { filter: drop-shadow(0 0 26px rgba(255,230,120,0.95)) drop-shadow(0 0 8px rgba(255,200,80,0.6)); }
-  60% { filter: drop-shadow(0 0 18px rgba(255,230,120,0.7)) drop-shadow(0 0 6px rgba(255,200,80,0.45)); }
-  100% { filter: drop-shadow(0 0 0 rgba(255,215,0,0)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

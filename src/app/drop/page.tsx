@@ -744,7 +744,7 @@ function ConfettiBurst({ onDone }: { onDone: () => void }) {
     resize();
     window.addEventListener('resize', resize);
 
-    const N = 220;
+    const N = 120; // Reduced from 220 for better performance
     const colors = ['#f59e0b','#10b981','#3b82f6','#ef4444','#a855f7','#f97316'];
     const particles = Array.from({ length: N }).map((_, i) => {
       // Centered around upward (-PI/2) with ±90° spread
@@ -2585,11 +2585,11 @@ export default function DropPage() {
   }, []);
 
   // CSS-driven ticker: measure once and use GPU-accelerated CSS animation
+  // Note: Ticker always runs, even in reduced-motion mode (important content)
   useEffect(() => {
     const span = smallTickerSpanRef.current;
     if (!span) return;
     if (typeof window === 'undefined') return;
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
   // ensure base styles
     span.style.position = 'absolute';
@@ -2641,7 +2641,7 @@ export default function DropPage() {
       resizeTimeout = setTimeout(() => {
         onResize();
         resizeTimeout = null;
-      }, 150);
+      }, 300);
     };
 
     window.addEventListener('resize', debouncedResize, { passive: true });
@@ -2749,11 +2749,11 @@ export default function DropPage() {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
-  // cycle logo animation: 0..5 every 10s (6 variants)
+  // cycle logo animation: 0..5 every 15s (6 variants) - increased interval for better performance
   const [logoAnim, setLogoAnim] = useState<number>(0);
   useEffect(() => {
     if (prefersReducedMotion) return;
-    const id = setInterval(() => setLogoAnim(v => (v + 1) % 6), 10000);
+    const id = setInterval(() => setLogoAnim(v => (v + 1) % 6), 15000);
     return () => clearInterval(id);
   }, [prefersReducedMotion]);
 
@@ -4165,10 +4165,10 @@ function currentDailyPos() {
   radial-gradient(3000px 2200px at -10% 50%,  rgba(220,30,30,0.06), rgba(0,0,0,0) 82%),
   radial-gradient(3000px 2200px at 110% 50%,  rgba(220,30,30,0.06), rgba(0,0,0,0) 82%)
 `,
-          backgroundSize: '160% 160%, 160% 160%, 160% 160%, 170% 170%, 170% 170%, 180% 180%, 160% 160%, 200% 200%, 200% 200%',
-          backgroundPosition: 'var(--bgPos, 0% 0%), var(--bgPos, 100% 0%), var(--bgPos, 50% 100%), var(--bgPos, 10% 85%), var(--bgPos, 90% 80%), var(--bgPos, 50% 40%), var(--bgPos, 5% 50%), var(--bgPos, 0% 50%), var(--bgPos, 100% 50%)',
-          animation: prefersReducedMotion ? 'none' : 'gradientShift 28s ease-in-out infinite alternate',
-          willChange: 'background-position',
+          backgroundSize: '100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%',
+          backgroundPosition: '0 0',
+          animation: 'none',
+          willChange: 'auto',
           backfaceVisibility: 'hidden'
         }}
       />
@@ -4417,13 +4417,16 @@ function currentDailyPos() {
                             }
                             return (
                               <span className="flex items-center gap-2">
-                                <div className="relative w-4 h-4">
+                                <div className="relative w-4 h-4" style={{ contain: 'layout style paint' }}>
                                   {/* Base circle */}
                                   <div className="absolute inset-0 border-2 border-black/30 rounded-full"></div>
                                   {/* Gravity-affected loading segment */}
                                   <div className="absolute inset-0 border-2 border-transparent border-t-black rounded-full" style={{ 
                                     animation: prefersReducedMotion ? 'none' : 'gravityRoll 2s linear infinite',
-                                    transformOrigin: 'center'
+                                    transformOrigin: 'center',
+                                    willChange: 'transform',
+                                    backfaceVisibility: 'hidden',
+                                    transform: 'translateZ(0)'
                                   }}></div>
                                 </div>
                                 Gewinner werden gelost • {fmtMS(msLeft)}
@@ -4779,10 +4782,10 @@ function currentDailyPos() {
   radial-gradient(3000px 2200px at -10% 50%,  rgba(220,30,30,0.06), rgba(0,0,0,0) 82%),
   radial-gradient(3000px 2200px at 110% 50%,  rgba(220,30,30,0.06), rgba(0,0,0,0) 82%)
 `,
-        backgroundSize: '160% 160%, 160% 160%, 160% 160%, 170% 170%, 170% 170%, 180% 180%, 160% 160%, 200% 200%, 200% 200%',
-        backgroundPosition: 'var(--bgPos, 0% 0%), var(--bgPos, 100% 0%), var(--bgPos, 50% 100%), var(--bgPos, 10% 85%), var(--bgPos, 90% 80%), var(--bgPos, 50% 40%), var(--bgPos, 5% 50%), var(--bgPos, 0% 50%), var(--bgPos, 100% 50%)',
-        animation: prefersReducedMotion ? 'none' : 'gradientShift 28s ease-in-out infinite alternate',
-        willChange: 'background-position',
+        backgroundSize: '100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%',
+        backgroundPosition: '0 0',
+        animation: 'none',
+        willChange: 'auto',
         backfaceVisibility: 'hidden'
       }}
     />
