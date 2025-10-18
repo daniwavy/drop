@@ -314,15 +314,23 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
 
 /* Vault title subtle float + shimmer effect */
 @keyframes vaultFloat {
-  0% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+  0% { transform: translateY(0); animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+  50% { transform: translateY(-6px); animation-timing-function: cubic-bezier(0.55, 0.055, 0.675, 0.19); }
   100% { transform: translateY(0); }
 }
 
 .vault-title {
-  animation: vaultFloat 3s ease-in-out infinite;
+  animation: vaultFloat 4s linear infinite;
   will-change: transform;
   backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+@-moz-document url-prefix() {
+  .vault-title {
+    animation: vaultFloat 5s linear infinite;
+    will-change: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -362,7 +370,7 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
   position: absolute;
   left: 50%;
   top: 50%; /* center vertically behind the collage */
-  transform: translate(-50%, -50%) scale(0.8);
+  transform: translate(-50%, -50%) scale(0.8) rotate(0deg);
   width: 100%; /* smaller */
   height: auto;
   pointer-events: none;
