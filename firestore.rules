@@ -5,5 +5,16 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
+    
+    // Allow users to create/read/write their own application document
+    match /applications/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // Also allow submissions subcollection for legacy/other flows
+      match /submissions/{submissionId} {
+        allow create: if request.auth != null && request.auth.uid == uid;
+        allow read: if request.auth != null && request.auth.uid == uid;
+      }
+    }
   }
 }

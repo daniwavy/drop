@@ -11,6 +11,7 @@ import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import CardFrame from '../../components/CardFrame';
 import RandomBackgrounds from '../../components/RandomBackgrounds';
 import Link from 'next/link';
+import SiteFooter from '@/components/SiteFooter';
 import { ref, getDownloadURL } from "firebase/storage";
 import { storage } from "../../lib/firebase";
 // --- Cached getDownloadURL with memory + localStorage TTL ---
@@ -768,7 +769,7 @@ function ConfettiBurst({ onDone }: { onDone: () => void }) {
     const t0 = performance.now();
     const duration = 4000; // ms
 
-    function tick(t: number) {
+    const tick = (t: number) => {
       if (!ctx) return;
       const last = (tick as any).lt ?? t;
       const dt = t - last;
@@ -799,7 +800,7 @@ function ConfettiBurst({ onDone }: { onDone: () => void }) {
       } else {
         cleanup();
       }
-    }
+    };
 
     function cleanup() {
       if (!running) return;
@@ -818,7 +819,7 @@ function ConfettiBurst({ onDone }: { onDone: () => void }) {
 }
 
 // Stylized preview card for the Countdown minigame (used when no image is available)
-function CountdownPreviewCard({ title, timeLabel }: { title: string; timeLabel: string }) {
+const CountdownPreviewCard = React.memo(function CountdownPreviewCard({ title, timeLabel }: { title: string; timeLabel: string }) {
   // Yesterday winners from Firestore: config/winners[YYYY-MM-DD]
   type WinnerRow = { name: string; prize: string; time?: string };
   const [winners, setWinners] = useState<WinnerRow[]>([]);
@@ -903,11 +904,11 @@ function CountdownPreviewCard({ title, timeLabel }: { title: string; timeLabel: 
       <div className="absolute top-3 left-3 px-2 py-1 rounded-full bg-black/40 text-white text-[11px] font-semibold border border-white/15">NEU</div>
     </div>
   );
-}
+});
 
 function ParticipateButton({ activeTile, setActiveTile, item }: { activeTile: number | null; setActiveTile: (n: number | null) => void; item?: { src: string; toMs?: number | null; headline?: string | null; subtitle?: string | null; content?: string | null } | null }) {
   const [busy, setBusy] = useState(false);
-  const onClick = async (ev?: React.SyntheticEvent) => {
+  const onClick = React.useCallback(async (ev?: React.SyntheticEvent) => {
     ev?.stopPropagation();
     if (!item) return;
     try {
@@ -941,7 +942,7 @@ function ParticipateButton({ activeTile, setActiveTile, item }: { activeTile: nu
     } finally {
       setBusy(false);
     }
-  };
+  }, [item, setActiveTile]);
 
   return (
     <button
@@ -961,7 +962,7 @@ function ParticipateButton({ activeTile, setActiveTile, item }: { activeTile: nu
 
 
 // 3D tilt Steam-style gift card sprite for prize pool
-function GiftCard3D({ title, img, children }: { title?: string; img?: string; children?: React.ReactNode }) {
+const GiftCard3D = React.memo(function GiftCard3D({ title, img, children }: { title?: string; img?: string; children?: React.ReactNode }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const handle = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = wrapRef.current; if (!el) return;
@@ -1018,10 +1019,10 @@ function GiftCard3D({ title, img, children }: { title?: string; img?: string; ch
       </div>
     </div>
   );
-}
+});
 
 // Interactive Neon Hologram card for the minigame
-function NeonHoloCard({ title, subtitle, timeLabel, img, onImgLoad, onImgError, onStart, uid, onShowAccount }: { title: string; subtitle: string; timeLabel: string; img?: string | null; onImgLoad?: () => void; onImgError?: () => void; onStart?: () => void; uid?: string | null; onShowAccount?: () => void; }) {
+const NeonHoloCard = React.memo(function NeonHoloCard({ title, subtitle, timeLabel, img, onImgLoad, onImgError, onStart, uid, onShowAccount }: { title: string; subtitle: string; timeLabel: string; img?: string | null; onImgLoad?: () => void; onImgError?: () => void; onStart?: () => void; uid?: string | null; onShowAccount?: () => void; }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const handle = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = wrapRef.current; if (!el) return;
@@ -1136,10 +1137,10 @@ function NeonHoloCard({ title, subtitle, timeLabel, img, onImgLoad, onImgError, 
       </button>
     </div>
   );
-}
+});
 
 // Reusable small Tile wrapper using same mouse-tilt logic as NeonHoloCard
-function Tile3D({ children }: { children: React.ReactNode }) {
+const Tile3D = React.memo(function Tile3D({ children }: { children: React.ReactNode }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const handle = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = wrapRef.current; if (!el) return;
@@ -1164,11 +1165,22 @@ function Tile3D({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
-}
+});
 
 
 export default function DropPage() {
   const [isHydrated, setIsHydrated] = useState(false);
+  // Login-Modal: Query-Parameter SOFORT beim ersten Rendern auswerten (vor Hydrierung)
+  const [shouldOpenLogin, setShouldOpenLogin] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const url = new URL(window.location.href);
+      return url.searchParams.get('login') === '1';
+    } catch {
+      return false;
+    }
+  });
+  
   useEffect(() => {
     setIsHydrated(true);
   }, []);
@@ -1573,7 +1585,7 @@ export default function DropPage() {
   const [poolResolved, setPoolResolved] = useState<({ title?: string; qty?: number; url: string })[]>([]);
 
 
-  const findLevelArrayIndex = (levelsList: PrizeLevel[] | null, target: number | null | undefined) => {
+  const findLevelArrayIndex = React.useCallback((levelsList: PrizeLevel[] | null, target: number | null | undefined) => {
     if (!levelsList || levelsList.length === 0) return -1;
     if (target == null) return 0;
     let bestLowerIndex = -1;
@@ -1601,7 +1613,7 @@ export default function DropPage() {
     if (bestLowerIndex !== -1) return bestLowerIndex;
     if (bestHigherIndex !== -1) return bestHigherIndex;
     return 0;
-  };
+  }, []);
 
   const numberFormatter = useMemo(() => new Intl.NumberFormat('de-DE'), []);
   const ticketsBadgeText = useMemo(() => {
@@ -1692,12 +1704,20 @@ export default function DropPage() {
     };
   }, [thresholdList, totalPoolTickets]);
 
-  const effectivePoolLevel = Math.max(0, Math.max(poolLevel ?? 0, poolProgress.levelIndex ?? 0));
-  const poolProgressLabel = poolProgress.requiredForNext != null
+  const effectivePoolLevel = useMemo(() => Math.max(0, Math.max(poolLevel ?? 0, poolProgress.levelIndex ?? 0)), [poolLevel, poolProgress.levelIndex]);
+  
+  const poolProgressLabel = useMemo(() => poolProgress.requiredForNext != null
     ? `${numberFormatter.format(Math.max(0, Math.floor(poolProgress.earnedInLevel)))}/${numberFormatter.format(Math.max(0, Math.floor(poolProgress.requiredForNext)))}`
-    : `${numberFormatter.format(Math.max(0, Math.floor(poolProgress.total)))}`;
-  const poolProgressSuffix = poolProgress.requiredForNext != null ? 'Tickets' : 'Tickets gesamt';
-  const poolProgressIsMax = poolProgress.requiredForNext == null;
+    : `${numberFormatter.format(Math.max(0, Math.floor(poolProgress.total)))}`, [poolProgress]);
+  
+  const poolProgressSuffix = useMemo(() => poolProgress.requiredForNext != null ? 'Tickets' : 'Tickets gesamt', [poolProgress.requiredForNext]);
+  
+  const poolProgressIsMax = useMemo(() => poolProgress.requiredForNext == null, [poolProgress.requiredForNext]);
+  
+  // Memoized inline styles to prevent object recreation on each render
+  const topBarWrapperStyle = useMemo(() => ({ backfaceVisibility: 'hidden', willChange: 'transform', transform: 'translateZ(0)' } as React.CSSProperties), []);
+  const smallTickerStyle = useMemo(() => ({ backfaceVisibility: 'hidden' } as React.CSSProperties), []);
+  
   // --- Loading overlay: shown until Firebase data is ready on first load ---
   const [loading, setLoading] = useState(true);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -2449,24 +2469,17 @@ export default function DropPage() {
     }
 
   function onScroll() {
-    // Throttle via RAF to avoid noisy logs
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = null;
-      try {
-        const st = c.scrollTop;
-        lastScrollTop = st;
-        prevWindowY = typeof window !== 'undefined' ? window.scrollY : prevWindowY;
-        lastWindowY = prevWindowY;
-        // Minimal debug output in dev only
-        if (process.env.NODE_ENV !== 'production') {
-          // Log every ~10th scroll to avoid spamming
-          if (Math.abs(st - lastScrollTop) > 50) dumpStyles(c, 'container');
-        }
-      } catch (err) {
-        console.warn('SNAP_DEBUG onScroll error', err);
-      }
-    });
+    // Skip expensive debug operations in scroll handler
+    // RAF is not necessary here since scroll events are already throttled by browser
+    try {
+      const st = c.scrollTop;
+      lastScrollTop = st;
+      prevWindowY = typeof window !== 'undefined' ? window.scrollY : prevWindowY;
+      lastWindowY = prevWindowY;
+      // Minimize debug output - only on resize, not on every scroll
+    } catch (err) {
+      console.warn('SNAP_DEBUG onScroll error', err);
+    }
   }
 
     // Let CSS handle scroll-snap natively first, fallback only if needed
@@ -2585,6 +2598,8 @@ export default function DropPage() {
     span.style.whiteSpace = 'nowrap';
     span.style.willChange = 'transform';
     span.style.backfaceVisibility = 'hidden';
+    span.style.transform = 'translateZ(0) translateY(-50%)';
+    (span as any).style.WebkitAcceleration = 'true';
 
     function startCssTicker() {
       if (!span) return;
@@ -2620,10 +2635,20 @@ export default function DropPage() {
       requestAnimationFrame(() => startCssTicker());
     };
 
-    window.addEventListener('resize', onResize, { passive: true });
+    let resizeTimeout: NodeJS.Timeout | null = null;
+    const debouncedResize = () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        onResize();
+        resizeTimeout = null;
+      }, 150);
+    };
+
+    window.addEventListener('resize', debouncedResize, { passive: true });
 
     return () => {
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', debouncedResize);
+      if (resizeTimeout) clearTimeout(resizeTimeout);
       stopCssTicker();
     };
   }, [smallTicker]);
@@ -2796,6 +2821,20 @@ export default function DropPage() {
   const [showAccount, setShowAccount] = useState<boolean>(false);
   const [showItems, setShowItems] = useState<boolean>(false);
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
+  
+  // Login-Modal öffnen, sobald loading beendet, hydrated und shouldOpenLogin true ist
+  useEffect(() => {
+    if (!loading && isHydrated && shouldOpenLogin) {
+      setShowAccount(true);
+      setShouldOpenLogin(false); // nur einmal triggern
+      // Query-Parameter aus URL entfernen
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('login');
+        window.history.replaceState({}, '', url.toString());
+      } catch {}
+    }
+  }, [loading, isHydrated, shouldOpenLogin]);
   
   // Function to close all modals before opening a new one
   const closeAllModals = () => {
@@ -3663,16 +3702,24 @@ function currentDailyPos() {
   }, [effectivePoolLevel]);
 
   // Update poolItems when poolLevel changes and prizeLevels exists; also update totalRewards for current level
-  useEffect(() => {
-    if (!prizeLevels || prizeLevels.length === 0) return;
+  const memoPoolItems = useMemo(() => {
+    if (!prizeLevels || prizeLevels.length === 0) return [];
     const idx = findLevelArrayIndex(prizeLevels, effectivePoolLevel);
     const safeIdx = idx >= 0 && idx < prizeLevels.length ? idx : 0;
-    const items = Array.isArray(prizeLevels[safeIdx]?.items) ? prizeLevels[safeIdx]!.items! : [];
-    setPoolItems(items);
-    if (levelTotals && levelTotals.length > safeIdx) {
-      setTotalRewards(levelTotals[safeIdx] || 0);
-    }
-  }, [effectivePoolLevel, prizeLevels, levelTotals]);
+    return Array.isArray(prizeLevels[safeIdx]?.items) ? prizeLevels[safeIdx]!.items! : [];
+  }, [effectivePoolLevel, prizeLevels, findLevelArrayIndex]);
+
+  const memoTotalRewards = useMemo(() => {
+    if (!levelTotals || !prizeLevels || prizeLevels.length === 0) return 0;
+    const idx = findLevelArrayIndex(prizeLevels, effectivePoolLevel);
+    const safeIdx = idx >= 0 && idx < levelTotals.length ? idx : 0;
+    return levelTotals[safeIdx] || 0;
+  }, [effectivePoolLevel, prizeLevels, levelTotals, findLevelArrayIndex]);
+
+  useEffect(() => {
+    setPoolItems(memoPoolItems);
+    setTotalRewards(memoTotalRewards);
+  }, [memoPoolItems, memoTotalRewards]);
 
   // Load static collage from local public folder
   useEffect(() => {
@@ -3972,9 +4019,9 @@ function currentDailyPos() {
 
   
   {/* Sticky Header Elements */}
-  <div ref={null} className={`fixed top-0 left-0 right-0 z-60 topbar-wrapper ${hideTopOnFooter ? 'top-hidden' : 'top-visible'}`} style={{ backfaceVisibility: 'hidden', willChange: 'transform', transform: 'translateZ(0)' }}>
+  <div ref={null} className={`fixed top-0 left-0 right-0 z-60 topbar-wrapper ${hideTopOnFooter ? 'top-hidden' : 'top-visible'}`} style={topBarWrapperStyle}>
   {/* Tiny scroll banner */}
-  <div className={`h-6 ${hideTopOnFooter ? 'bg-transparent' : 'bg-black'} text-white`} style={{ backfaceVisibility: 'hidden' }}>
+  <div className={`h-6 ${hideTopOnFooter ? 'bg-transparent' : 'bg-black'} text-white`} style={smallTickerStyle}>
         <div ref={smallTickerContainerRef} className="small-ticker-wrap w-full h-full">
           <div className="small-ticker-track relative h-full">
             <span ref={smallTickerSpanRef} className="small-ticker-text">{smallTicker}</span>
@@ -4075,7 +4122,7 @@ function currentDailyPos() {
         </div>
       </div>
     </div>
-    <div className="relative w-screen h-screen bg-black text-white flex flex-col overflow-hidden scroll-snap-section">
+    <div className="relative w-screen h-screen bg-black text-white flex flex-col overflow-hidden scroll-snap-section" style={{ contain: 'layout style paint' }}>
       {/* Animated red gradient over black */}
       <div
         aria-hidden
@@ -4094,12 +4141,16 @@ function currentDailyPos() {
   radial-gradient(3000px 2200px at 110% 50%,  rgba(220,30,30,0.06), rgba(0,0,0,0) 82%)
 `,
           backgroundSize: '160% 160%, 160% 160%, 160% 160%, 170% 170%, 170% 170%, 180% 180%, 160% 160%, 200% 200%, 200% 200%',
-          backgroundPosition: '0% 0%, 100% 0%, 50% 100%, 10% 85%, 90% 80%, 50% 40%, 5% 50%, 0% 50%, 100% 50%',
-          animation: 'gradientShift 28s ease-in-out infinite alternate'
+          backgroundPosition: 'var(--bgPos, 0% 0%), var(--bgPos, 100% 0%), var(--bgPos, 50% 100%), var(--bgPos, 10% 85%), var(--bgPos, 90% 80%), var(--bgPos, 50% 40%), var(--bgPos, 5% 50%), var(--bgPos, 0% 50%), var(--bgPos, 100% 50%)',
+          animation: 'gradientShift 28s ease-in-out infinite alternate',
+          willChange: 'background-position',
+          backfaceVisibility: 'hidden'
         }}
       />
       {/* Global scanline overlay */}
-      <div aria-hidden className="absolute inset-0 z-[1] pointer-events-none scanlines" />
+      {typeof window !== 'undefined' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches && (
+        <div aria-hidden className="absolute inset-0 z-[1] pointer-events-none scanlines" style={{ willChange: 'auto', backfaceVisibility: 'hidden' }} />
+      )}
 
       {/* Adblock Modal */}
       {adblockDetected && !adblockDismissed && (
@@ -4401,16 +4452,8 @@ function currentDailyPos() {
         </div>
 
         {/* Right sidebar: Ads am rechten Rand, vertikal mittig */}
-        <aside className="hidden xl:block fixed top-1/2 right-0 -translate-y-1/2 w-[300px] flex flex-col space-y-6 z-40 mr-4">
-          <div className="w-full h-[250px] rounded-2xl border border-white/15 bg-gray-200 flex items-center justify-center text-white/60 text-sm">
-            Ad Placeholder
-          </div>
-          <div className="w-full h-[250px] rounded-2xl border border-white/15 bg-gray-200 flex items-center justify-center text-white/60 text-sm">
-            Ad Placeholder
-          </div>
-        </aside>
-        {/* Right spacer to keep center truly centered when left panel is visible */}
-        <div className="hidden xl:block w-[300px] self-center" aria-hidden="true" />
+  {/* Right spacer to keep center truly centered when left panel is visible */}
+  <div className="hidden xl:block w-[300px] self-center" aria-hidden="true" />
       </div>
 
       {/* Prize Pool Modal */}
@@ -4705,12 +4748,16 @@ function currentDailyPos() {
   radial-gradient(3000px 2200px at 110% 50%,  rgba(220,30,30,0.06), rgba(0,0,0,0) 82%)
 `,
         backgroundSize: '160% 160%, 160% 160%, 160% 160%, 170% 170%, 170% 170%, 180% 180%, 160% 160%, 200% 200%, 200% 200%',
-        backgroundPosition: '0% 0%, 100% 0%, 50% 100%, 10% 85%, 90% 80%, 50% 40%, 5% 50%, 0% 50%, 100% 50%',
-        animation: 'gradientShift 28s ease-in-out infinite alternate'
+        backgroundPosition: 'var(--bgPos, 0% 0%), var(--bgPos, 100% 0%), var(--bgPos, 50% 100%), var(--bgPos, 10% 85%), var(--bgPos, 90% 80%), var(--bgPos, 50% 40%), var(--bgPos, 5% 50%), var(--bgPos, 0% 50%), var(--bgPos, 100% 50%)',
+        animation: 'gradientShift 28s ease-in-out infinite alternate',
+        willChange: 'background-position',
+        backfaceVisibility: 'hidden'
       }}
     />
     {/* Global scanline overlay */}
-    <div aria-hidden className="absolute inset-0 z-[1] pointer-events-none scanlines" />
+    {typeof window !== 'undefined' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches && (
+      <div aria-hidden className="absolute inset-0 z-[1] pointer-events-none scanlines" style={{ willChange: 'auto', backfaceVisibility: 'hidden' }} />
+    )}
 
     {/* --- Test grid placed on the red second screen --- */}
   <div className="flex items-center justify-center px-4 relative z-20" style={{ height: 'calc(100vh - var(--topbar-height))' }}>
@@ -5050,51 +5097,7 @@ function currentDailyPos() {
               <div className="border-t border-white/10" aria-hidden />
             </div>
           </div>
-  <footer className="bg-black text-white py-6">
-    <div className="max-w-6xl mx-auto px-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <h3 className="text-base font-semibold mb-2">
-                  <img src="/logo.png" alt="DROP" className="h-6 object-contain inline-block" />
-                </h3>
-                <p className="text-gray-400 text-sm">
-                  Deine Plattform für Gaming-Rewards und Preise.
-                </p>
-              </div>
-              
-              <div>
-                <h4 className="text-sm font-semibold mb-2">Links</h4>
-                <ul className="space-y-1 text-sm text-gray-400">
-                  <li><a href="/datenschutz" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Datenschutz</a></li>
-                  <li><a href="/impressum" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Impressum</a></li>
-                  <li><a href="/agb" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">AGB</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Support</a></li>
-                </ul>
-              </div>
-              
-              <div>
-                <h4 className="text-sm font-semibold mb-2">Community</h4>
-                <ul className="space-y-1 text-sm text-gray-400">
-                  <li><a href="#" className="hover:text-white transition-colors">Discord</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Twitter</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Instagram</a></li>
-                  <li><a href="/partners/dashboard" className="hover:text-white transition-colors">Partner werden</a></li>
-                </ul>
-              </div>
-            </div>
-            
-            <div className="border-t border-gray-800 mt-4 pt-4">
-              <div className="flex flex-col md:flex-row justify-between items-center">
-                <p className="text-gray-500 text-xs">
-                  © {new Date().getFullYear()} DROP. Alle Rechte vorbehalten.
-                </p>
-                <p className="text-gray-500 text-xs mt-2 md:mt-0">
-                  Made with ❤️ for Gamers
-                </p>
-              </div>
-            </div>
-          </div>
-        </footer>
+  <SiteFooter />
       </div>
     </section>
   </React.Fragment>
