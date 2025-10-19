@@ -3,18 +3,16 @@ import React, { useEffect } from 'react';
 import Image from 'next/image';
 import LocalOnlyLinkWrapper from '../../components/LocalOnlyLinkWrapper';
 import { useRouter } from 'next/navigation';
-import { doc, getDoc, getFirestore } from 'firebase/firestore';
+import { doc, onSnapshot, getFirestore } from 'firebase/firestore';
 
 export default function MaintenancePage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check on mount and when tab becomes visible
-    const checkMaintenance = async () => {
-      try {
-        const fs = getFirestore();
-        const ref = doc(fs, 'config', 'status');
-        const snap = await getDoc(ref);
+    try {
+      const fs = getFirestore();
+      const ref = doc(fs, 'config', 'status');
+      const unsub = onSnapshot(ref, (snap) => {
         const data = snap.exists() ? (snap.data() as unknown) : null;
         let maint = false;
         if (data && typeof data === 'object') {
@@ -30,30 +28,13 @@ export default function MaintenancePage() {
             try { window.location.replace('/drop'); } catch {}
           }
         }
-      } catch (err) {
-        console.warn('[MaintenancePage] maintenance check failed', err);
-      }
-    };
-
-    // Check on component mount
-    checkMaintenance();
-
-    // Check when tab becomes visible (F5 or switching back to tab)
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        checkMaintenance();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Also check periodically every 30 seconds
-    const interval = setInterval(checkMaintenance, 30000);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(interval);
-    };
+      }, (err) => {
+        console.warn('[MaintenancePage] snapshot error', err);
+      });
+      return () => unsub();
+    } catch (e) {
+      console.warn('[MaintenancePage] init failed', e);
+    }
   }, [router]);
 
   return (
