@@ -37,7 +37,7 @@ export default function MaintenancePage() {
         <div style={{fontSize:16,opacity:0.95,marginTop:12}}>Wir führen gerade Wartungsarbeiten durch. Bitte versuche es später erneut.</div>
         <div style={{marginTop:20}}>
           <button
-            onClick={() => router.push('/drop')}
+            onClick={() => router.push('/')}
             style={{
               padding: '12px 24px',
               fontSize: 16,
