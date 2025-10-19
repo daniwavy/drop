@@ -313,23 +313,22 @@ html[data-show-section-dividers="true"] .scroll-snap-section + .scroll-snap-sect
 }
 
 /* Vault title subtle float + shimmer effect */
-@keyframes vaultFloat {
-  0% { transform: translateY(0); animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94); }
-  50% { transform: translateY(-6px); animation-timing-function: cubic-bezier(0.55, 0.055, 0.675, 0.19); }
-  100% { transform: translateY(0); }
+@keyframes vaultGlowPulse {
+  0%, 100% { filter: drop-shadow(0 0 15px rgba(218, 165, 32, 0.6)) drop-shadow(0 0 5px rgba(255, 215, 0, 0.4)); }
+  50% { filter: drop-shadow(0 0 25px rgba(218, 165, 32, 1)) drop-shadow(0 0 12px rgba(255, 215, 0, 0.8)); }
 }
 
 .vault-title {
-  animation: vaultFloat 4s linear infinite;
-  will-change: transform;
+  will-change: auto;
   backface-visibility: hidden;
   transform: translateZ(0);
+  filter: drop-shadow(0 0 20px rgba(218, 165, 32, 0.8)) drop-shadow(0 0 8px rgba(255, 215, 0, 0.6));
 }
 
 @-moz-document url-prefix() {
   .vault-title {
-    animation: vaultFloat 5s linear infinite;
     will-change: auto;
+    filter: drop-shadow(0 0 20px rgba(218, 165, 32, 0.8)) drop-shadow(0 0 8px rgba(255, 215, 0, 0.6));
   }
 }
 

@@ -1809,35 +1809,6 @@ export default function DropPage() {
   const [activeTile, setActiveTile] = useState<number | null>(null);
   const [popupLoading, setPopupLoading] = useState<boolean>(false);
   // Prevent page scroll when grid popup is open
-  const bodyOverflowRef = useRef<string | null>(null);
-  useEffect(() => {
-    try {
-      if (activeTile !== null) {
-        // save previous value
-        bodyOverflowRef.current = document.body.style.overflow || '';
-        document.body.style.overflow = 'hidden';
-      } else {
-        if (bodyOverflowRef.current !== null) {
-          document.body.style.overflow = bodyOverflowRef.current || '';
-          bodyOverflowRef.current = null;
-        } else {
-          document.body.style.removeProperty('overflow');
-        }
-      }
-    } catch (e) {
-      /* ignore */
-    }
-    return () => {
-      try {
-        if (bodyOverflowRef.current !== null) {
-          document.body.style.overflow = bodyOverflowRef.current || '';
-          bodyOverflowRef.current = null;
-        } else {
-          document.body.style.removeProperty('overflow');
-        }
-      } catch (e) { /* ignore */ }
-    };
-  }, [activeTile]);
   
   // Participant counts for the active tile popup
   // participation counts are shown only in the bubble; we don't keep total count state here
@@ -2859,21 +2830,27 @@ export default function DropPage() {
     try { setPopupLoading(false); setActiveTile(null); } catch {}
   };
 
-  // When the account modal is open we want to prevent background/page scrolling
+  // When any modal is open, prevent background/page scrolling
   // but still allow scrolling inside the modal itself. We do this by
   // locking body scroll (overflow: hidden) and preventing touchmove on the
-  // document while the modal is open. We restore previous values on close.
+  // document while any modal is open. We restore previous values on close.
   useEffect(() => {
     let prevOverflow: string | null = null;
     let prevTouchAction: string | null = null;
     function preventTouch(e: TouchEvent) {
-      // allow if the target is inside the modal scroll container
+      // allow if the target is inside any modal scroll container
       const modalScroll = document.querySelector('.account-modal-scroll') as Element | null;
       if (modalScroll && modalScroll.contains(e.target as Node)) return;
+      // also allow if target is inside fixed modals
+      const target = e.target as Element;
+      if (target?.closest('[className*="fixed"][className*="inset-0"]')) return;
       e.preventDefault();
     }
 
-    if (showAccount) {
+    // Check if any modal is open
+    const isAnyModalOpen = showAccount || showDaily || showItems || showNotifications || showPool || showTest || activeTile !== null;
+
+    if (isAnyModalOpen) {
       try {
         prevOverflow = document.body.style.overflow || null;
         prevTouchAction = document.documentElement.style.touchAction || null;
@@ -2881,7 +2858,7 @@ export default function DropPage() {
         // prevent passive touchmove from scrolling the background on mobile
         document.documentElement.style.touchAction = 'none';
         document.addEventListener('touchmove', preventTouch, { passive: false });
-  } catch { /* ignore */ }
+      } catch { /* ignore */ }
     }
 
     return () => {
@@ -2891,7 +2868,7 @@ export default function DropPage() {
         document.removeEventListener('touchmove', preventTouch as EventListener);
       } catch (e) { /* ignore */ }
     };
-  }, [showAccount]);
+  }, [showAccount, showDaily, showItems, showNotifications, showPool, showTest, activeTile]);
   
   // Adblock detector
   const [adblockDetected, setAdblockDetected] = useState<boolean>(false);
@@ -3898,6 +3875,8 @@ function currentDailyPos() {
       window.removeEventListener('message', onMsg);
     };
   }, []);
+
+
   // Demo: Yesterday's winners (test view)
   // const demoWinnersData = [
   //   { name: 'Lena', prize: '5€ Steam', time: '22:13' },
@@ -3922,6 +3901,490 @@ function currentDailyPos() {
       </div>
     )}
   
+  {/* MODALS PORTAL - Rendered at ROOT level, completely outside scroll context */}
+  {showNotifications && (
+    <div className="fixed inset-0 z-40 flex items-center justify-center opacity-100 pointer-events-auto">
+      <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowNotifications(false)} />
+      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[560px] p-8 md:p-10 flex flex-col items-center justify-center">
+        <img
+          src="/icons/zzz.svg"
+          alt="Keine Benachrichtigungen"
+          className="mb-4 h-28 w-28 object-contain select-none pointer-events-none"
+          style={{ imageRendering: 'pixelated' }}
+          onError={(e) => {
+            const el = e.currentTarget as HTMLImageElement;
+            el.onerror = null;
+            el.outerHTML = '<div style="font-size:48px;line-height:1">💤</div>';
+          }}
+        />
+        <div className="text-lg font-semibold">Keine neuen Nachrichten</div>
+        <div className="mt-1 text-sm text-black/60">Du bist up to date</div>
+      </div>
+    </div>
+  )}
+
+  {showTest && (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowTest(false)} />
+      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,800px)] max-h-[80vh] overflow-y-auto p-0">
+        <RaffleTestTerminal
+          onClose={() => setShowTest(false)}
+          forceRaffleWindow={forceRaffleWindow}
+          onForceRaffleWindowChange={setForceRaffleWindow}
+        />
+      </div>
+    </div>
+  )}
+
+  {showPool && (
+    <div className="fixed inset-0 z-40 flex items-center justify-center" onClick={() => setShowPool(false)}>
+      <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowPool(false)} />
+      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,784px)] max-h-[67vh] p-4 sm:p-6 overflow-y-auto">
+        {/* close button removed - rely on overlay click/programmatic close */}
+        {/* Centered level bar below header: 50% modal width */}
+        {(() => {
+          const pct = poolProgress.pct;
+          return (
+            <div className="mt-2 mb-8 w-full">
+              <div className="mx-auto w-1/2">
+                <div className="flex items-baseline justify-between text-sm text-black">
+                  <span>
+                    Level <span className="tabular-nums font-bold text-base">{Math.max(0, effectivePoolLevel)}</span>
+                  </span>
+                  <div className="text-right">
+                    <span className="tabular-nums">{poolProgressLabel}</span> {poolProgressSuffix}
+                    {poolProgressIsMax && (
+                      <div className="text-[10px] uppercase tracking-wide text-black/50">Max Level erreicht</div>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-1 h-3 rounded-full bg-black/10 overflow-hidden ring-1 ring-white/10">
+                  <div
+                    className="h-3 rounded-full bg-gradient-to-r from-rose-500 via-red-500 to-orange-500 transition-[width] duration-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-center text-xs text-black/60">Sammle Tickets, um den Pool zu füllen und bessere Preise freizuschalten.</p>
+            </div>
+          );
+        })()}
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pr-1">
+          {poolResolved.length === 0 && (
+            <>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={`pp-demo-${i}`} className="relative flex flex-col items-center">
+                  <div className="aspect-[64/100] w-full">
+                    <GiftCard3D title="Titel">
+                      <div className="absolute top-2 left-2 bg-black/70 text-white text-[11px] px-2 py-0.5 rounded-full">×1</div>
+                    </GiftCard3D>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+          {poolResolved.map((it, idx) => (
+            <div key={idx} className="relative flex flex-col items-center">
+              <div className="aspect-[64/100] w-full">
+                <GiftCard3D title={it.title || "Titel"} img={it.url}>
+                  {it.title !== 'Not disclosed' && (
+                    <div className="absolute top-2 left-2 bg-black/70 text-white text-[11px] px-2 py-0.5 rounded-full">
+                      ×{scaledQty(it.qty)}
+                    </div>
+                  )}
+                </GiftCard3D>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => { try { window.open('/Teilnahmebedingungen', '_blank', 'noopener'); } catch { window.open('/Teilnahmebedingungen', '_blank'); } }}
+            className="text-black text-xs underline-offset-2 hover:underline cursor-pointer"
+            aria-label="Teilnahmebedingungen ansehen"
+          >
+            Es gelten unsere Teilnahmebedingungen
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {showDaily && (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowDaily(false)} />
+      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(78vw,720px)] max-h-[86vh] p-4 sm:p-5 overflow-hidden">
+        {/* close button removed - rely on overlay click/programmatic close */}
+        {/* scroll container */}
+        <div className="mt-2 overflow-y-auto" style={{ maxHeight: '70vh' }}>
+          {/* Streak progress 1–30 */}
+          <div className="mt-3 max-w-3xl mx-auto">
+            <div className="grid grid-cols-7 gap-1 items-stretch justify-items-stretch">
+            {dailyRewards.map((r, i) => {
+                // 14 Tage, 2 Reihen à 7
+                const day = i + 1; // 1..14
+                const pos = currentDailyPos(); // 1..14
+                const isToday = day === pos;         // aktuelle Kachel
+                const isDone = day <= (streak || 0); // alle Tage bis zur Serie gelten als eingelöst
+                return (
+                  <div
+                    key={i}
+                    className={`relative flex flex-col items-center justify-center rounded-xl border aspect-[4/3] w-full h-full min-w-0 p-1 sm:p-1.5 text-[10px] sm:text-xs ${
+                      isDone
+                        ? 'bg-emerald-100 border-emerald-300'
+                        : isToday
+                        ? 'bg-amber-100 border-amber-300'
+                        : (dailySpecialItems[day] ? 'bg-sky-50 border-sky-300' : 'bg-white border-black/10')
+                    }`}
+                  >
+                    <div className={`text-[10px] sm:text-[11px] uppercase tracking-wide ${isToday ? 'text-amber-700' : 'text-black/50'}`}>
+                      Tag {day}
+                    </div>
+                    {!dailySpecialItems[day] ? (
+                      <div className="font-bold text-sm sm:text-base">
+                        +{r}
+                        <span ref={isToday ? dailySourceGemRef : undefined} className="inline-block align-middle ml-1">
+                          <img
+                            src="/icons/coin.svg"
+                            alt="Coin"
+                            width={16}
+                            height={16}
+                            className="inline-block select-none pointer-events-none align-middle"
+                            style={{ imageRendering: 'pixelated', verticalAlign: '-0.125em' }}
+                            onError={(e) => {
+                              const el = e.currentTarget as HTMLImageElement;
+                              if (!el.dataset.fallback) {
+                                el.dataset.fallback = 'png';
+                                el.src = '/icons/coin.png';
+                              } else {
+                                el.outerHTML = '<span aria-hidden="true" style="font-size:14px;line-height:1">🪙</span>';
+                              }
+                            }}
+                          />
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="mt-0.5 text-[10px] sm:text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
+                        <span aria-hidden>{dailySpecialItems[day].emoji}</span>
+                        <span>{dailySpecialItems[day].label}</span>
+                      </div>
+                    )}
+                    {isDone && (
+                      <div className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                        Eingelöst
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        {/* Claim row (moved outside scroll container, always visible at bottom of modal card) */}
+        {/* invisible anchor near claim area for gem spawn */}
+        <div ref={testAnchorRef} className="sr-only" aria-hidden />
+        <div className="mt-4 sm:mt-6 flex items-center justify-center gap-3">
+          <button
+            disabled={!uid || claimedToday || claimLoading}
+            className={`px-4 py-2 rounded-full text-white font-semibold ${(!uid || claimedToday || claimLoading) ? 'bg-black/30 cursor-not-allowed' : 'bg-black hover:opacity-90'}`}
+            onClick={() => {
+              const n = todaysRewardCount();
+              playGemFly(n, dailySourceGemRef.current);
+              handleClaim();
+            }}
+          >
+            {claimedToday ? 'Heute bereits abgeholt' : (claimLoading ? 'Wird abgeholt…' : 'Heute abholen')}
+          </button>
+          {claimError && (
+            <div className="mt-2 text-xs text-red-600 font-semibold">
+              {claimError}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )}
+
+  {showAccount && (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => { if (!mustComplete) setShowAccount(false); }} />
+      <div className="relative bg-transparent text-black w-[min(92vw,480px)] max-h-[85vh] p-0 overflow-visible">
+        <div className="w-full max-h-[calc(85vh-2rem)] overflow-y-auto account-modal-scroll">
+          <AccountPanel embedded />
+        </div>
+      </div>
+    </div>
+  )}
+
+  {showItems && (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/80" onClick={() => setShowItems(false)} />
+      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,480px)] max-h-[80vh] px-6 pb-6 pt-12 overflow-y-auto">
+        {/* close button removed - rely on overlay click/programmatic close */}
+        <div className="space-y-3">
+          {buyError && <div className="p-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded">{buyError}</div>}
+          {shopItems.filter(it => (it.active ?? true)).map((it) => {
+              const owned = itemsOwned[it.id] || 0; // echte Anzahl
+              const canBuy = (coins || 0) >= it.price && owned < 1; // kaufen nur, wenn noch keins
+              const busy = buyBusy[it.id];
+              const nowMs = nowMsItems || Date.now();
+              const eff = effects[it.id];
+              const isActive = !!eff?.active && typeof eff?.untilMs === 'number' && eff.untilMs > nowMs;
+              const remMs = isActive && eff?.untilMs ? Math.max(0, eff.untilMs - nowMs) : 0;
+              const remLabel = isActive && eff?.untilMs ? fmt(remMs) : null;
+              return (
+                <div
+                  key={it.id}
+                  className={`p-4 border rounded-2xl flex items-center justify-between gap-3 ${isActive ? 'bg-emerald-100 border-emerald-300 active-glow active-anim active-bling' : 'bg-white border-black/10'}`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <img
+                      src={it.id === 'ad_20_coins' ? '/icons/free-coins.svg' : `/icons/${it.id}.svg`} 
+                      alt=""
+                      width={40}
+                      height={40}
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        el.onerror = null;
+                        el.src = it.id === 'ad_20_coins' ? '/icons/free-coins.svg' : '/items/pixel-items.svg';
+                      }}
+                      className="w-10 h-10 object-contain select-none"
+                      style={{ imageRendering: 'pixelated' }}
+                    />
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">{it.name}</div>
+                      <div className="text-sm text-gray-700 truncate">{it.desc}</div>
+                      {it.id !== 'ad_20_coins' && (
+                        <div className="mt-1 text-xs text-gray-700">
+                          Besitz: <span className="tabular-nums">{owned}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isActive ? (
+                      <span className="px-3 py-1.5 rounded-full text-[12px] font-semibold bg-black text-white border border-emerald-700 tabular-nums">
+                        Aktiv{remLabel ? ` · ${remLabel}` : ''}
+                      </span>
+                    ) : owned < 1 ? (
+                      <button
+                        onClick={() => buyItem(it.id)}
+                        disabled={!uid || busy || !canBuy}
+                        className={`px-3 py-1.5 rounded-full text-white text-sm font-semibold flex items-center gap-1.5 ${(!uid || busy || !canBuy) ? 'bg-black/30 cursor-not-allowed' : 'bg-black hover:opacity-90'}`}
+                      >
+                        {it.id === 'ad_20_coins' && (
+                          <img
+                            src="/icons/ad-icon.svg"
+                            width={12} // von 14 auf 12 reduziert
+                            height={12} // von 14 auf 12 reduziert 
+                            alt=""
+                            className="opacity-90"
+                          />
+                        )}
+                        {it.price}
+                        <img
+                          src="/icons/coin.svg"
+                          width={18}
+                          height={18}
+                          alt="Coins"
+                          className="inline-block align-middle"
+                          style={{ imageRendering: 'pixelated', verticalAlign: '-0.18em' }}
+                        />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => useItem(it.id)}
+                        disabled={!uid || busy}
+                        className={`px-3 py-1.5 rounded-full text-white text-sm font-semibold ${(!uid || busy) ? 'bg-black/30 cursor-not-allowed' : 'bg-black hover:opacity-90'}`}
+                      >
+                        {busy ? 'Verwenden…' : 'Verwenden'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+      </div>
+    </div>
+  )}
+
+  {activeTile !== null && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4" onClick={() => { setPopupLoading(false); setActiveTile(null); }}>
+      <div className="max-w-[420px] w-full" onClick={(e) => e.stopPropagation()}>
+        <CardFrame svg="/card-frame.svg" aspect="5/6" safePadding="0">
+          <div ref={modalContentRef} className="relative w-full h-full rounded-2xl overflow-visible bg-white">
+            {popupLoading ? (
+              <div className="flex items-center justify-center w-full h-full">
+                <div className="w-12 h-12 border-4 border-gray-200 border-t-black rounded-full animate-spin" aria-hidden />
+              </div>
+            ) : (
+              <div className="flex flex-col h-full">
+                <div className="flex-1 px-6 pt-6 pb-4 overflow-y-auto">
+                  {/* Modal top-right countdown pill */}
+                  <div className="absolute top-3 right-3 z-20">
+                    <TileCountdown toMs={gridItems[activeTile]?.toMs} />
+                  </div>
+                  <h3 className="text-3xl font-extrabold text-black leading-tight mt-8">
+                    {(gridItems[activeTile] as any)?.headline ?? (gridItems[activeTile] as any)?.title ?? `Headline`}
+                  </h3>
+                  <p className="mt-3 text-sm text-black/70 whitespace-pre-line break-words">
+                    {(gridItems[activeTile] as any)?.content ?? (gridItems[activeTile] as any)?.subtitle ?? `Beschreibung`}
+                  </p>
+                  {/* spacer: eight blank lines */}
+                  <div aria-hidden>
+                    <br />
+                    <br />
+                    <br />
+                    <br />
+                    <br />
+                    <br />
+                    <br />
+                  </div>
+                </div>
+
+                <div className="px-6 pb-6">
+                  <div className="absolute left-6 right-6 bottom-2 flex flex-col items-center">
+                    <button
+                      ref={participateButtonRef}
+                      type="button"
+                      aria-label={`Teilnehmen an Drop ${activeTile !== null ? activeTile + 1 : ''}`}
+                      disabled={!canParticipate || popupBusy}
+                      onClick={async (ev) => {
+                        ev?.stopPropagation();
+                        if (!canParticipate) {
+                          if (nextAllowedMs) {
+                            try {
+                              const p = berlinPartsFromMs(nextAllowedMs);
+                              alert(`Nächstes Teilnehmen möglich: ${String(p.hour).padStart(2,'0')}:${String(p.minute).padStart(2,'0')} (Berlin)`);
+                            } catch {
+                              alert('Noch gesperrt');
+                            }
+                          } else {
+                            alert('Noch gesperrt');
+                          }
+                          return;
+                        }
+                        setPopupBusy(true);
+                        try {
+                          const item = gridItems[activeTile ?? -1];
+                          if (!item) { alert('Ungültiger Eintrag'); return; }
+                          let entryId = (item as any)?.id ?? (item as any)?.__id ?? (item as any)?.name ?? (item as any)?.title ?? null;
+                          if (!entryId) {
+                            if (typeof activeTile === 'number') entryId = `drop-item-${activeTile}`;
+                            else { alert('Ungültiger Eintrag'); return; }
+                          }
+                          try { console.log('[drop] calling enterDrop', { entryId, item, activeTile }); } catch { }
+                          let res: any = null;
+                          try {
+                            const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'enterDrop');
+                            res = await fn({ entryId });
+                          } catch (err: any) {
+                            console.warn('[drop] httpsCallable failed, will try HTTP fallback', err?.message || err);
+                            try {
+                              const auth = getAuth();
+                              const user = auth.currentUser;
+                              if (!user) throw new Error('no-auth-user');
+                              const idToken = await user.getIdToken();
+                              const url = `/api/proxy/enterDrop`;
+                              const fetchRes = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                                body: JSON.stringify({ entryId }),
+                              });
+                              const body = await fetchRes.json();
+                              res = { data: body };
+                            } catch (err2: any) {
+                              console.error('[drop] HTTP fallback failed', err2);
+                              throw err2;
+                            }
+                          }
+                          if (res?.data?.ok) {
+                            alert(`Teilnahme erfolgreich (${res.data.count})`);
+                            setActiveTile(null);
+                            if (typeof res.data.remainingCoins === 'number') {
+                              setCoins(res.data.remainingCoins);
+                            }
+                          } else {
+                            const serverMsg = String(res?.data?.message || 'unknown');
+                            if (serverMsg.includes('insufficient-coins')) {
+                              alert('Nicht genügend Coins. Teilnahme kostet 10 Coins.');
+                            } else {
+                              alert(`Fehler: ${serverMsg}`);
+                            }
+                          }
+                        } catch (err) {
+                          console.error('enterDrop failed', err);
+                          alert(`Fehler: ${String(err)}`);
+                        } finally {
+                          setPopupBusy(false);
+                        }
+                      }}
+                      className={`w-full py-4 rounded-2xl text-lg font-bold shadow-lg transition-opacity relative flex items-center justify-center ${!canParticipate || popupBusy ? 'bg-black/70 cursor-not-allowed text-white/90' : 'bg-black text-white hover:opacity-95'}`}
+                      style={{ boxShadow: '0 8px 20px rgba(0,0,0,0.35)', cursor: (!canParticipate || popupBusy) ? 'not-allowed' : 'pointer', pointerEvents: (!canParticipate || popupBusy) ? 'none' : 'auto' }}
+                      onMouseEnter={(e) => { try { (e.currentTarget as HTMLElement).style.cursor = (!canParticipate || popupBusy) ? 'not-allowed' : 'pointer'; } catch {} }}
+                      onMouseLeave={(e) => { try { (e.currentTarget as HTMLElement).style.cursor = ''; } catch {} }}
+                    >
+                      {canParticipate && !popupBusy && (
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 pointer-events-none">
+                          <img src="/icons/coin.svg" alt="Coins" className="w-5 h-5" />
+                          <span className="text-white font-semibold tabular-nums">10</span>
+                        </span>
+                      )}
+                      <div className="text-white font-semibold">
+                        {popupBusy ? 'Sende...' : (!canParticipate && countdownMs !== null ? `Nächste Teilnahme in ${formatCountdown(countdownMs)}` : 'Teilnehmen')}
+                      </div>
+                    </button>
+                    {/* Speech bubble positioned above the button using the SVG background */}
+                    <div
+                      ref={bubbleRef}
+                      aria-hidden
+                      style={bubbleStyle ? { position: 'absolute', ...bubbleStyle, zIndex: 40, pointerEvents: 'none' } : { position: 'absolute', bottom: '80px', right: '12px', zIndex: 40, pointerEvents: 'none' }}
+                    >
+                      <div style={{ position: 'relative', pointerEvents: 'none', filter: 'drop-shadow(0 6px 18px rgba(0,0,0,0.22))' }}>
+                        <div
+                          role="img"
+                          aria-hidden
+                          style={{
+                            display: 'inline-block',
+                            backgroundImage: `url('/speech-bubble.svg')`,
+                            backgroundRepeat: 'no-repeat',
+                            backgroundSize: '100% 100%',
+                            padding: '12px 28px 22px',
+                            maxWidth: '72vw',
+                            whiteSpace: 'nowrap',
+                            textAlign: 'center',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <div className="text-sm text-white font-semibold" style={{ lineHeight: 1.1, textShadow: '0 1px 0 rgba(0,0,0,0.2)' }}>
+                            {uid ? (myParticipationCount === null ? 'Lade…' : `Du bist ${myParticipationCount}× dabei`) : 'Bitte einloggen, um zu sehen, wie oft du teilgenommen hast'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-6 md:mt-8">
+                      <button
+                        type="button"
+                        onClick={() => { try { router.push('/Teilnahmebedingungen'); } catch { window.location.href = '/Teilnahmebedingungen'; } }}
+                        className="text-black text-[12px] text-center underline-offset-2 hover:underline cursor-pointer"
+                        aria-label="Teilnahmebedingungen ansehen"
+                        style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
+                      >
+                        Es gelten unsere Teilnahmebedingungen
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardFrame>
+      </div>
+    </div>
+  )}
+
   {/* Hidden asset preloading */}
   <div style={{ position: 'absolute', left: '-9999px', top: '-9999px', visibility: 'hidden', pointerEvents: 'none' }} aria-hidden="true">
     <img src="/icons/trophy.svg" alt="" />
@@ -3939,110 +4402,6 @@ function currentDailyPos() {
     <img src="/pfpfs/preset6.png" alt="" />
   </div>
 
-  {/* MODAL PRELOADING - Render modal structures invisibly to cache DOM and reduce stuttering */}
-  <div style={{ 
-    position: 'fixed', 
-    left: '-9999px', 
-    top: '-9999px', 
-    visibility: 'hidden', 
-    pointerEvents: 'none',
-    zIndex: -1 
-  }} aria-hidden="true">
-    {/* Preload Notifications Modal structure */}
-    <div className="fixed inset-0 z-40 flex items-center justify-center opacity-100 pointer-events-auto">
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[560px] p-8 md:p-10 flex flex-col items-center justify-center">
-        <img src="/icons/zzz.svg" alt="Keine Benachrichtigungen" className="mb-4 h-28 w-28 object-contain select-none pointer-events-none" />
-        <h3 className="text-xl font-bold mb-2">Keine Benachrichtigungen</h3>
-        <p className="text-gray-600 text-center">Du hast alle Benachrichtigungen gelesen!</p>
-      </div>
-    </div>
-
-    {/* Preload Items Modal structure */}
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,480px)] max-h-[80vh] px-6 pb-6 pt-12 overflow-y-auto">
-        <div className="space-y-3">
-          <div className="p-4 border rounded-2xl flex items-center justify-between gap-3 bg-white border-black/10">
-            <div className="flex items-center gap-3 min-w-0">
-              <img src="/icons/free-coins.svg" alt="" width={40} height={40} className="shrink-0" />
-              <div className="min-w-0">
-                <div className="font-semibold truncate">Sample Item</div>
-                <div className="text-sm text-gray-500 truncate">Sample description</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Preload Account/Profile Modal structure */}
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="relative bg-transparent text-black w-[min(92vw,480px)] max-h-[85vh] p-0 overflow-visible">
-        <div className="absolute -top-3 -right-3">
-    {/* close button removed - rely on overlay click/programmatic close */}
-        </div>
-        <div className="w-full max-h-[calc(85vh-2rem)] overflow-y-auto">
-          <div className="bg-white rounded-xl p-6">
-            <div className="text-center">Account Panel Preload</div>
-            <div className="mt-4 space-y-4">
-              <input type="text" className="w-full px-3 py-2 border rounded" placeholder="Username" />
-              {/* Avatar Grid Preload - load all local preset avatars */}
-              <div className="perma-scrollbar overflow-x-scroll -mx-3 px-3 pb-1 pt-0.5">
-                <div className="flex gap-3 pr-1">
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset1.png" alt="Avatar Preset 1" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset2.png" alt="Avatar Preset 2" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset3.png" alt="Avatar Preset 3" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset4.png" alt="Avatar Preset 4" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset5.png" alt="Avatar Preset 5" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                  <button className="shrink-0 rounded border border-black/30" style={{ padding: 0 }}>
-                    <div className="rounded overflow-hidden" style={{ width: 'calc(6rem * 0.95)', height: '6rem' }}>
-                      <img src="/pfpfs/preset6.png" alt="Avatar Preset 6" className="w-full h-full object-cover" />
-                    </div>
-                  </button>
-                </div>
-              </div>
-              <button className="w-full py-2 bg-blue-500 text-white rounded">Save Profile</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Preload Daily Login Bonus Modal structure */}
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" />
-      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[560px] p-8 md:p-10 flex flex-col items-center justify-center">
-        <img src="/icons/coin.svg" alt="Daily Bonus" className="mb-4 h-28 w-28 object-contain select-none pointer-events-none" />
-        <h3 className="text-xl font-bold mb-2">Daily Login Bonus</h3>
-        <p className="text-gray-600 text-center">Your daily rewards are waiting!</p>
-      </div>
-    </div>
-  </div>
-
-
-  
   {/* Sticky Header Elements */}
   <div ref={null} className={`fixed top-0 left-0 right-0 z-60 topbar-wrapper ${hideTopOnFooter ? 'top-hidden' : 'top-visible'}`} style={topBarWrapperStyle}>
   {/* Tiny scroll banner */}
@@ -4211,40 +4570,6 @@ function currentDailyPos() {
       )}
 
       {/* test grid removed from here and moved to the red second screen */}
-
-      {/* Notifications Modal */}
-      {showNotifications && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center opacity-100 pointer-events-auto">
-          <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowNotifications(false)} />
-          <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,560px)] max-w-[560px] p-8 md:p-10 flex flex-col items-center justify-center">
-            <img
-              src="/icons/zzz.svg"
-              alt="Keine Benachrichtigungen"
-              className="mb-4 h-28 w-28 object-contain select-none pointer-events-none"
-              style={{ imageRendering: 'pixelated' }}
-              onError={(e) => {
-                const el = e.currentTarget as HTMLImageElement;
-                el.onerror = null;
-                // Fallback to emoji if the local asset is missing
-                el.outerHTML = '<div style="font-size:48px;line-height:1">💤</div>';
-              }}
-            />
-            {/* close button removed - rely on overlay click/programmatic close */}
-            <div className="text-lg font-semibold">Keine neuen Nachrichten</div>
-            <div className="mt-1 text-sm text-black/60">Du bist up to date</div>
-          </div>
-        </div>
-      )}
-      {/* Test Terminal */}
-      {showTest && (
-        <RaffleTestTerminal
-            onClose={() => {
-              setShowTest(false);
-            }}
-            forceRaffleWindow={forceRaffleWindow}
-            onForceRaffleWindowChange={setForceRaffleWindow}
-          />
-      )}
   {/* Random background blobs */}
   <RandomBackgrounds count={5} />
   {/* Main viewport content: ads + center column with proportional layout */}
@@ -4318,7 +4643,7 @@ function currentDailyPos() {
         </aside>
 
         {/* Center column: collage fills most, minigame pinned near bottom */}
-        <div className="flex-1 h-full flex flex-col items-stretch pb-6">
+        <div className="flex-1 h-full flex flex-col items-stretch pb-2 justify-between">
           {/* Collage area (flex grows) */}
           <div
             ref={areaRef}
@@ -4445,7 +4770,7 @@ function currentDailyPos() {
           </div>
 
           {/* Minigame — Neon Hologram */}
-          <div className="w-full flex flex-col items-center flex-none mt-auto mb-6">
+          <div className="w-full flex flex-col items-center flex-none mt-auto mb-0">
           <div className="relative aspect-[921/177] h-[clamp(120px,18vh,160px)] w-[33.33vw] max-w-full">
             <NeonHoloCard
               title={gameSlug || 'Minigame'}
@@ -4473,11 +4798,11 @@ function currentDailyPos() {
               }}
             />
           </div>
-          <div className="w-full flex items-center justify-center mt-2">
+          <div className="w-full flex items-center justify-center mt-0">
             <button
               type="button"
               onClick={() => { try { window.open('/Teilnahmebedingungen', '_blank', 'noopener'); } catch { window.open('/Teilnahmebedingungen', '_blank'); } }}
-              className="text-white text-sm underline-offset-2 hover:underline cursor-pointer"
+              className="text-white text-xs underline-offset-2 hover:underline cursor-pointer"
               aria-label="Teilnahmebedingungen ansehen"
             >
               Es gelten unsere Teilnahmebedingungen
@@ -4490,273 +4815,6 @@ function currentDailyPos() {
   {/* Right spacer to keep center truly centered when left panel is visible */}
   <div className="hidden xl:block w-[300px] self-center" aria-hidden="true" />
       </div>
-
-      {/* Prize Pool Modal */}
-      {showPool && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowPool(false)} />
-          <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,980px)] max-h-[84vh] p-4 sm:p-6 overflow-hidden">
-            {/* close button removed - rely on overlay click/programmatic close */}
-            {/* Centered level bar below header: 50% modal width */}
-            {(() => {
-              const pct = poolProgress.pct;
-              return (
-                <div className="mt-2 mb-8 w-full">
-                  <div className="mx-auto w-1/2">
-                    <div className="flex items-baseline justify-between text-sm text-black">
-                      <span>
-                        Level <span className="tabular-nums font-bold text-base">{Math.max(0, effectivePoolLevel)}</span>
-                      </span>
-                      <div className="text-right">
-                        <span className="tabular-nums">{poolProgressLabel}</span> {poolProgressSuffix}
-                        {poolProgressIsMax && (
-                          <div className="text-[10px] uppercase tracking-wide text-black/50">Max Level erreicht</div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-1 h-3 rounded-full bg-black/10 overflow-hidden ring-1 ring-white/10">
-                      <div
-                        className="h-3 rounded-full bg-gradient-to-r from-rose-500 via-red-500 to-orange-500 transition-[width] duration-500"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                  <p className="mt-2 text-center text-xs text-black/60">Sammle Tickets, um den Pool zu füllen und bessere Preise freizuschalten.</p>
-                </div>
-              );
-            })()}
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto pr-1" style={{ maxHeight: '68vh' }}>
-              {poolResolved.length === 0 && (
-                <>
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <div key={`pp-demo-${i}`} className="relative flex flex-col items-center">
-                      <div className="aspect-[64/100] w-full">
-                        <GiftCard3D title="Titel">
-                          <div className="absolute top-2 left-2 bg-black/70 text-white text-[11px] px-2 py-0.5 rounded-full">×1</div>
-                        </GiftCard3D>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              )}
-              {poolResolved.map((it, idx) => (
-                <div key={idx} className="relative flex flex-col items-center">
-                  <div className="aspect-[64/100] w-full">
-                    <GiftCard3D title={it.title || "Titel"} img={it.url}>
-                      {it.title !== 'Not disclosed' && (
-                        <div className="absolute top-2 left-2 bg-black/70 text-white text-[11px] px-2 py-0.5 rounded-full">
-                          ×{scaledQty(it.qty)}
-                        </div>
-                      )}
-                    </GiftCard3D>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Daily Login Bonus */}
-      <div className={`fixed inset-0 z-40 flex items-center justify-center ${showDaily ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-  <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowDaily(false)} />
-        <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(78vw,720px)] max-h-[86vh] p-4 sm:p-5 overflow-hidden">
-            {/* close button removed - rely on overlay click/programmatic close */}
-            {/* scroll container */}
-            <div className="mt-2 overflow-y-auto" style={{ maxHeight: '70vh' }}>
-              {/* Streak progress 1–30 */}
-              <div className="mt-3 max-w-3xl mx-auto">
-                <div className="grid grid-cols-7 gap-1 items-stretch justify-items-stretch">
-                {dailyRewards.map((r, i) => {
-                    // 14 Tage, 2 Reihen à 7
-                    const day = i + 1; // 1..14
-                    const pos = currentDailyPos(); // 1..14
-                    const isToday = day === pos;         // aktuelle Kachel
-                    const isDone = day <= (streak || 0); // alle Tage bis zur Serie gelten als eingelöst
-                    return (
-                      <div
-                        key={i}
-                        className={`relative flex flex-col items-center justify-center rounded-xl border aspect-[4/3] w-full h-full min-w-0 p-1 sm:p-1.5 text-[10px] sm:text-xs ${
-                          isDone
-                            ? 'bg-emerald-100 border-emerald-300'
-                            : isToday
-                            ? 'bg-amber-100 border-amber-300'
-                            : (dailySpecialItems[day] ? 'bg-sky-50 border-sky-300' : 'bg-white border-black/10')
-                        }`}
-                      >
-                        <div className={`text-[10px] sm:text-[11px] uppercase tracking-wide ${isToday ? 'text-amber-700' : 'text-black/50'}`}>
-                          Tag {day}
-                        </div>
-                        {!dailySpecialItems[day] ? (
-                          <div className="font-bold text-sm sm:text-base">
-                            +{r}
-                            <span ref={isToday ? dailySourceGemRef : undefined} className="inline-block align-middle ml-1">
-                              <img
-                                src="/icons/coin.svg"
-                                alt="Coin"
-                                width={16}
-                                height={16}
-                                className="inline-block select-none pointer-events-none align-middle"
-                                style={{ imageRendering: 'pixelated', verticalAlign: '-0.125em' }}
-                                onError={(e) => {
-                                  const el = e.currentTarget as HTMLImageElement;
-                                  if (!el.dataset.fallback) {
-                                    el.dataset.fallback = 'png';
-                                    el.src = '/icons/coin.png';
-                                  } else {
-                                    el.outerHTML = '<span aria-hidden="true" style="font-size:14px;line-height:1">🪙</span>';
-                                  }
-                                }}
-                              />
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="mt-0.5 text-[10px] sm:text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
-                            <span aria-hidden>{dailySpecialItems[day].emoji}</span>
-                            <span>{dailySpecialItems[day].label}</span>
-                          </div>
-                        )}
-                        {isDone && (
-                          <div className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                            Eingelöst
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-            {/* Claim row (moved outside scroll container, always visible at bottom of modal card) */}
-            {/* invisible anchor near claim area for gem spawn */}
-            <div ref={testAnchorRef} className="sr-only" aria-hidden />
-            <div className="mt-4 sm:mt-6 flex items-center justify-center gap-3">
-              <button
-                disabled={!uid || claimedToday || claimLoading}
-                className={`px-4 py-2 rounded-full text-white font-semibold ${(!uid || claimedToday || claimLoading) ? 'bg-black/30 cursor-not-allowed' : 'bg-black hover:opacity-90'}`}
-                onClick={() => {
-                  const n = todaysRewardCount();
-                  playGemFly(n, dailySourceGemRef.current);
-                  handleClaim();
-                }}
-              >
-                {claimedToday ? 'Heute bereits abgeholt' : (claimLoading ? 'Wird abgeholt…' : 'Heute abholen')}
-              </button>
-              {claimError && (
-                <div className="mt-2 text-xs text-red-600 font-semibold">
-                  {claimError}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Account Modal */}
-      {showAccount && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => { if (!mustComplete) setShowAccount(false); }} />
-          <div className="relative bg-transparent text-black w-[min(92vw,480px)] max-h-[85vh] p-0 overflow-visible">
-            {/* close button removed - rely on overlay click/programmatic close */}
-            <div className="w-full max-h-[calc(85vh-2rem)] overflow-y-auto account-modal-scroll">
-              <AccountPanel embedded />
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Items Modal */}
-      {showItems && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/80" onClick={() => setShowItems(false)} />
-          <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,480px)] max-h-[80vh] px-6 pb-6 pt-12 overflow-y-auto">
-          {/* close button removed - rely on overlay click/programmatic close */}
-          <div className="space-y-3">
-            {buyError && <div className="p-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded">{buyError}</div>}
-            {shopItems.filter(it => (it.active ?? true)).map((it) => {
-                const owned = itemsOwned[it.id] || 0; // echte Anzahl
-                const canBuy = (coins || 0) >= it.price && owned < 1; // kaufen nur, wenn noch keins
-                const busy = buyBusy[it.id];
-                const nowMs = nowMsItems || Date.now();
-                const eff = effects[it.id];
-                const isActive = !!eff?.active && typeof eff?.untilMs === 'number' && eff.untilMs > nowMs;
-                const remMs = isActive && eff?.untilMs ? Math.max(0, eff.untilMs - nowMs) : 0;
-                const remLabel = isActive && eff?.untilMs ? fmt(remMs) : null;
-                return (
-                  <div
-                    key={it.id}
-                    className={`p-4 border rounded-2xl flex items-center justify-between gap-3 ${isActive ? 'bg-emerald-100 border-emerald-300 active-glow active-anim active-bling' : 'bg-white border-black/10'}`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <img
-                        src={it.id === 'ad_20_coins' ? '/icons/free-coins.svg' : `/icons/${it.id}.svg`} 
-                        alt=""
-                        width={40}
-                        height={40}
-                        onError={(e) => {
-                          const el = e.currentTarget as HTMLImageElement;
-                          el.onerror = null;
-                          el.src = it.id === 'ad_20_coins' ? '/icons/free-coins.svg' : '/items/pixel-items.svg';
-                        }}
-                        className="w-10 h-10 object-contain select-none"
-                        style={{ imageRendering: 'pixelated' }}
-                      />
-                      <div className="min-w-0">
-                        <div className="font-semibold truncate">{it.name}</div>
-                        <div className="text-sm text-gray-700 truncate">{it.desc}</div>
-                        {it.id !== 'ad_20_coins' && (
-                          <div className="mt-1 text-xs text-gray-700">
-                            Besitz: <span className="tabular-nums">{owned}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {isActive ? (
-                        <span className="px-3 py-1.5 rounded-full text-[12px] font-semibold bg-black text-white border border-emerald-700 tabular-nums">
-                          Aktiv{remLabel ? ` · ${remLabel}` : ''}
-                        </span>
-                      ) : owned < 1 ? (
-                        <button
-                          onClick={() => buyItem(it.id)}
-                          disabled={!uid || busy || !canBuy}
-                          className={`px-3 py-1.5 rounded-full text-white text-sm font-semibold flex items-center gap-1.5 ${(!uid || busy || !canBuy) ? 'bg-black/30 cursor-not-allowed' : 'bg-black hover:opacity-90'}`}
-                        >
-                          {it.id === 'ad_20_coins' && (
-                            <img
-                              src="/icons/ad-icon.svg"
-                              width={12} // von 14 auf 12 reduziert
-                              height={12} // von 14 auf 12 reduziert 
-                              alt=""
-                              className="opacity-90"
-                            />
-                          )}
-                          {it.price}
-                          <img
-                            src="/icons/coin.svg"
-                            width={18}
-                            height={18}
-                            alt="Coins"
-                            className="inline-block align-middle"
-                            style={{ imageRendering: 'pixelated', verticalAlign: '-0.18em' }}
-                          />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => useItem(it.id)}
-                          disabled={!uid || busy}
-                          className={`px-3 py-1.5 rounded-full text-white text-sm font-semibold ${(!uid || busy) ? 'bg-black/30 cursor-not-allowed' : 'bg-black hover:opacity-90'}`}
-                        >
-                          {busy ? 'Verwenden…' : 'Verwenden'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
       {/* Styles temporarily removed to fix build error */}
       {/* Confetti burst overlay */}
       {confettiAt !== 0 && (
@@ -4764,6 +4822,7 @@ function currentDailyPos() {
       )}
       
       {/* Second page below: full-screen black */}
+    </div>
   <section className="relative w-screen h-screen bg-black text-white scroll-snap-section below-topbar">
     {/* --- same animated red gradient over black as first section --- */}
     <div
@@ -4809,7 +4868,22 @@ function currentDailyPos() {
                 const gridColsClass = colsClassMap[cols] || 'grid-cols-3';
                 const gapValue = '1.1875rem';
 
-                // Build item elements (tiles reduced by 20%)
+                // Calculate tile size based on number of items
+                // Fewer items = larger tiles
+                let tileSize: string;
+                if (n === 1) {
+                  tileSize = 'clamp(15rem, 25vw, 28rem)'; // 1 item: very large
+                } else if (n === 2) {
+                  tileSize = 'clamp(13rem, 21vw, 24rem)'; // 2 items: large
+                } else if (n === 3 || n === 4) {
+                  tileSize = 'clamp(12rem, 19vw, 22rem)'; // 3-4 items: medium-large
+                } else if (n <= 6) {
+                  tileSize = 'clamp(11.52rem, 17.28vw, 19.2rem)'; // 5-6 items: medium
+                } else {
+                  tileSize = 'clamp(10rem, 15vw, 18rem)'; // 7+ items: normal
+                }
+
+                // Build item elements
                 
                 const items = new Array(n).fill(0).map((_, i) => (
                   <div
@@ -4820,7 +4894,7 @@ function currentDailyPos() {
                     tabIndex={0}
                     className="relative cursor-pointer group transform transition duration-200 ease-out hover:scale-105 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
                   >
-                    <div style={{ width: 'clamp(11.52rem, 17.28vw, 19.2rem)', aspectRatio: '1/1' }} className="relative">
+                    <div style={{ width: tileSize, aspectRatio: '1/1' }} className="relative">
                       <CardFrame svg="/card-frame.svg" aspect="1/1" safePadding="0">
                         <div className="relative w-full h-full rounded-2xl overflow-visible">
                           {/* subtle highlight overlay on hover/focus */}
@@ -4891,185 +4965,6 @@ function currentDailyPos() {
       </div>
     </div>
   </section>
-
-  {/* Modal for active tile (opens when a grid tile is clicked) */}
-  {activeTile !== null && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4" onClick={() => { setPopupLoading(false); setActiveTile(null); }}>
-      <div className="max-w-[420px] w-full" onClick={(e) => e.stopPropagation()}>
-  <CardFrame svg="/card-frame.svg" aspect="5/6" safePadding="0">
-    <div ref={modalContentRef} className="relative w-full h-full rounded-2xl overflow-visible bg-white">
-            {popupLoading ? (
-              <div className="flex items-center justify-center w-full h-full">
-                <div className="w-12 h-12 border-4 border-gray-200 border-t-black rounded-full animate-spin" aria-hidden />
-              </div>
-            ) : (
-              <div className="flex flex-col h-full">
-                <div className="flex-1 px-6 pt-6 pb-4 overflow-y-auto">
-                  {/* Modal top-right countdown pill */}
-                  <div className="absolute top-3 right-3 z-20">
-                    <TileCountdown toMs={gridItems[activeTile]?.toMs} />
-                  </div>
-                  <h3 className="text-3xl font-extrabold text-black leading-tight mt-8">
-                    {(gridItems[activeTile] as any)?.headline ?? (gridItems[activeTile] as any)?.title ?? `Headline`}
-                  </h3>
-                  <p className="mt-3 text-sm text-black/70 whitespace-pre-line break-words">
-                    {(gridItems[activeTile] as any)?.content ?? (gridItems[activeTile] as any)?.subtitle ?? `Beschreibung`}
-                  </p>
-                  {/* spacer: eight blank lines */}
-                  <div aria-hidden>
-                    <br />
-                    <br />
-                    <br />
-                    <br />
-                    <br />
-                    <br />
-                    <br />
-                  </div>
-                    {/* Participation counts are shown in the speech bubble above the button */}
-                </div>
-
-                <div className="px-6 pb-6">
-                  <div className="absolute left-6 right-6 bottom-2 flex flex-col items-center">
-                  <button
-                    ref={participateButtonRef}
-                    type="button"
-                    aria-label={`Teilnehmen an Drop ${activeTile !== null ? activeTile + 1 : ''}`}
-                    disabled={!canParticipate || popupBusy}
-                    onClick={async (ev) => {
-                      ev?.stopPropagation();
-                      if (!canParticipate) {
-                        if (nextAllowedMs) {
-                          try {
-                            const p = berlinPartsFromMs(nextAllowedMs);
-                            alert(`Nächstes Teilnehmen möglich: ${String(p.hour).padStart(2,'0')}:${String(p.minute).padStart(2,'0')} (Berlin)`);
-                          } catch {
-                            alert('Noch gesperrt');
-                          }
-                        } else {
-                          alert('Noch gesperrt');
-                        }
-                        return;
-                      }
-                      setPopupBusy(true);
-                      try {
-                        const item = gridItems[activeTile ?? -1];
-                        if (!item) { alert('Ungültiger Eintrag'); return; }
-                        let entryId = (item as any)?.id ?? (item as any)?.__id ?? (item as any)?.name ?? (item as any)?.title ?? null;
-                        if (!entryId) {
-                          if (typeof activeTile === 'number') entryId = `drop-item-${activeTile}`;
-                          else { alert('Ungültiger Eintrag'); return; }
-                        }
-                        try { console.log('[drop] calling enterDrop', { entryId, item, activeTile }); } catch { }
-                        let res: any = null;
-                        try {
-                          const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'enterDrop');
-                          res = await fn({ entryId });
-                        } catch (err: any) {
-                          console.warn('[drop] httpsCallable failed, will try HTTP fallback', err?.message || err);
-                          try {
-                            const auth = getAuth();
-                            const user = auth.currentUser;
-                            if (!user) throw new Error('no-auth-user');
-                            const idToken = await user.getIdToken();
-                            const url = `/api/proxy/enterDrop`;
-                            const fetchRes = await fetch(url, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-                              body: JSON.stringify({ entryId }),
-                            });
-                            const body = await fetchRes.json();
-                            res = { data: body };
-                          } catch (err2: any) {
-                            console.error('[drop] HTTP fallback failed', err2);
-                            throw err2;
-                          }
-                        }
-                        if (res?.data?.ok) {
-                          alert(`Teilnahme erfolgreich (${res.data.count})`);
-                          setActiveTile(null);
-                            // if server returned remainingCoins, update local state
-                            if (typeof res.data.remainingCoins === 'number') {
-                              setCoins(res.data.remainingCoins);
-                            }
-                        } else {
-                            const serverMsg = String(res?.data?.message || 'unknown');
-                            if (serverMsg.includes('insufficient-coins')) {
-                              alert('Nicht genügend Coins. Teilnahme kostet 10 Coins.');
-                            } else {
-                              alert(`Fehler: ${serverMsg}`);
-                            }
-                        }
-                      } catch (err) {
-                        console.error('enterDrop failed', err);
-                        alert(`Fehler: ${String(err)}`);
-                      } finally {
-                        setPopupBusy(false);
-                      }
-                    }}
-                    className={`w-full py-4 rounded-2xl text-lg font-bold shadow-lg transition-opacity relative flex items-center justify-center ${!canParticipate || popupBusy ? 'bg-black/70 cursor-not-allowed text-white/90' : 'bg-black text-white hover:opacity-95'}`}
-                    style={{ boxShadow: '0 8px 20px rgba(0,0,0,0.35)', cursor: (!canParticipate || popupBusy) ? 'not-allowed' : 'pointer', pointerEvents: (!canParticipate || popupBusy) ? 'none' : 'auto' }}
-                    onMouseEnter={(e) => { try { (e.currentTarget as HTMLElement).style.cursor = (!canParticipate || popupBusy) ? 'not-allowed' : 'pointer'; } catch {} }}
-                    onMouseLeave={(e) => { try { (e.currentTarget as HTMLElement).style.cursor = ''; } catch {} }}
-                  >
-                      {canParticipate && !popupBusy && (
-                        <span className="absolute left-4 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 pointer-events-none">
-                          <img src="/icons/coin.svg" alt="Coins" className="w-5 h-5" />
-                          <span className="text-white font-semibold tabular-nums">10</span>
-                        </span>
-                      )}
-                      <div className="text-white font-semibold">
-                        {popupBusy ? 'Sende...' : (!canParticipate && countdownMs !== null ? `Nächste Teilnahme in ${formatCountdown(countdownMs)}` : 'Teilnehmen')}
-                      </div>
-                  </button>
-                  {/* Speech bubble positioned above the button using the SVG background */}
-                  <div
-                    ref={bubbleRef}
-                    aria-hidden
-                    style={bubbleStyle ? { position: 'absolute', ...bubbleStyle, zIndex: 40, pointerEvents: 'none' } : { position: 'absolute', bottom: '80px', right: '12px', zIndex: 40, pointerEvents: 'none' }}
-                  >
-                    <div style={{ position: 'relative', pointerEvents: 'none', filter: 'drop-shadow(0 6px 18px rgba(0,0,0,0.22))' }}>
-                      <div
-                        role="img"
-                        aria-hidden
-                        style={{
-                          display: 'inline-block',
-                          backgroundImage: `url('/speech-bubble.svg')`,
-                          backgroundRepeat: 'no-repeat',
-                          backgroundSize: '100% 100%',
-                          padding: '12px 28px 22px',
-                          maxWidth: '72vw',
-                          whiteSpace: 'nowrap',
-                          textAlign: 'center',
-                          boxSizing: 'border-box'
-                        }}
-                      >
-                        <div className="text-sm text-white font-semibold" style={{ lineHeight: 1.1, textShadow: '0 1px 0 rgba(0,0,0,0.2)' }}>
-                          {uid ? (myParticipationCount === null ? 'Lade…' : `Du bist ${myParticipationCount}× dabei`) : 'Bitte einloggen, um zu sehen, wie oft du teilgenommen hast'}
-                        </div>
-                      </div>
-                    </div>
-                    </div>
-                    <div className="mt-6 md:mt-8">
-                      <button
-                        type="button"
-                        onClick={() => { try { router.push('/Teilnahmebedingungen'); } catch { window.location.href = '/Teilnahmebedingungen'; } }}
-                        className="text-black text-[12px] text-center underline-offset-2 hover:underline cursor-pointer"
-                        aria-label="Teilnahmebedingungen ansehen"
-                        style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
-                      >
-                        Es gelten unsere Teilnahmebedingungen
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                {/* close button removed - modal closes via overlay click */}
-              </div>
-            )}
-          </div>
-        </CardFrame>
-      </div>
-    </div>
-  )}
 
       {/* Footer Section */}
       <section ref={footerSectionRef} className="relative w-screen h-screen bg-black text-white scroll-snap-section border-t border-white/10">

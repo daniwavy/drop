@@ -1,8 +1,61 @@
-import React from 'react';
+'use client';
+import React, { useEffect } from 'react';
 import Image from 'next/image';
 import LocalOnlyLinkWrapper from '../../components/LocalOnlyLinkWrapper';
+import { useRouter } from 'next/navigation';
+import { doc, getDoc, getFirestore } from 'firebase/firestore';
 
 export default function MaintenancePage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check on mount and when tab becomes visible
+    const checkMaintenance = async () => {
+      try {
+        const fs = getFirestore();
+        const ref = doc(fs, 'config', 'status');
+        const snap = await getDoc(ref);
+        const data = snap.exists() ? (snap.data() as unknown) : null;
+        let maint = false;
+        if (data && typeof data === 'object') {
+          const d = data as Record<string, unknown>;
+          maint = Boolean(d.maintenance || d.maintenante || false);
+        }
+        
+        // If maintenance is no longer active, redirect to /drop
+        if (!maint) {
+          try {
+            router.replace('/drop');
+          } catch {
+            try { window.location.replace('/drop'); } catch {}
+          }
+        }
+      } catch (err) {
+        console.warn('[MaintenancePage] maintenance check failed', err);
+      }
+    };
+
+    // Check on component mount
+    checkMaintenance();
+
+    // Check when tab becomes visible (F5 or switching back to tab)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkMaintenance();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Also check periodically every 30 seconds
+    const interval = setInterval(checkMaintenance, 30000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(interval);
+    };
+  }, [router]);
+
   return (
     <div style={{minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000'}}>
       <div style={{textAlign: 'center', maxWidth: 720, padding: 24, color: '#fff'}}>
