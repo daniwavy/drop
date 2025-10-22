@@ -1137,12 +1137,9 @@ const NeonHoloCard = React.memo(function NeonHoloCard({ title, subtitle, timeLab
 
         {/* Lock icon overlay during maintenance */}
         {isMaintenanceTime && (
-          <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-12 h-12">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"></path>
-              <circle cx="12" cy="16" r="1" fill="white"></circle>
-            </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-30 pointer-events-none">
+            <img src="/schloss.svg" alt="Locked" className="w-12 h-12 mb-2" />
+            <span className="text-white text-xs font-semibold">Während Lösung nicht verfügbar</span>
           </div>
         )}
 
@@ -5083,50 +5080,55 @@ function currentDailyPos() {
           <div className="max-w-6xl mx-auto px-4">
             <h2 className="text-3xl font-bold text-white mb-6">Blog</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Blog Post Card 1 */}
-              <a href="#" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
-                <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative overflow-hidden">
+              {/* Blog Post Card 1 - How to Start DROP */}
+              <Link href="/blog/start-drop" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
+                <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative overflow-hidden flex items-center justify-center">
+                  <img src="/start-drop.png" alt="Wie DROP funktioniert" className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-emerald-500/10 group-hover:scale-105 transition-transform duration-300" />
-                  <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs font-semibold px-2 py-1 rounded">Tipps</span>
+                  <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs font-semibold px-2 py-1 rounded">Guide</span>
                 </div>
                 <div className="p-3">
-                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-emerald-400 transition-colors line-clamp-2">Die besten Strategien für Tap Rush</h3>
-                  <div className="flex items-center gap-2 text-xs text-white/50">
-                    <span>15. Okt</span>
-                    <span>5 min</span>
-                  </div>
-                </div>
-              </a>
-
-              {/* Blog Post Card 2 */}
-              <a href="#" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
-                <div className="aspect-video bg-gradient-to-br from-rose-500/20 to-rose-600/20 relative overflow-hidden">
-                  <div className="absolute inset-0 bg-rose-500/10 group-hover:scale-105 transition-transform duration-300" />
-                  <span className="absolute top-2 left-2 bg-rose-500 text-white text-xs font-semibold px-2 py-1 rounded">News</span>
-                </div>
-                <div className="p-3">
-                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-rose-400 transition-colors line-clamp-2">Halloween Gewinnspiel gestartet</h3>
+                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-emerald-400 transition-colors line-clamp-2">Wie DROP funktioniert – Dein Guide</h3>
                   <div className="flex items-center gap-2 text-xs text-white/50">
                     <span>22. Okt</span>
-                    <span>3 min</span>
                   </div>
                 </div>
-              </a>
+              </Link>
 
-              {/* Blog Post Card 3 */}
-              <a href="#" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
-                <div className="aspect-video bg-gradient-to-br from-blue-500/20 to-blue-600/20 relative overflow-hidden">
+              {/* Blog Post Card 2 - DROP-Vault Guide */}
+              <Link href="/blog/drop-vault-guide" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
+                <div className="aspect-video bg-gradient-to-br from-violet-500/20 to-violet-600/20 relative overflow-hidden flex items-center justify-center">
+                  <img src="/vault.svg" alt="DROP-Vault" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-violet-500/10 group-hover:scale-105 transition-transform duration-300" />
+                  <span className="absolute top-2 left-2 bg-violet-500 text-white text-xs font-semibold px-2 py-1 rounded">Guide</span>
+                </div>
+                <div className="p-3">
+                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-violet-400 transition-colors line-clamp-2">DROP-Vault – Dein digitaler Tresor</h3>
+                  <div className="flex items-center gap-2 text-xs text-white/50">
+                    <span>22. Okt</span>
+                  </div>
+                </div>
+              </Link>
+
+              {/* Blog Post Card 3 - Partner Program */}
+              <Link href="/blog/partner-program" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
+                <div className="aspect-video bg-gradient-to-br from-blue-500/20 to-blue-600/20 relative overflow-hidden flex items-center justify-center">
+                  <img src="/partner.png" alt="Partner-Programm" className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-blue-500/10 group-hover:scale-105 transition-transform duration-300" />
                   <span className="absolute top-2 left-2 bg-blue-500 text-white text-xs font-semibold px-2 py-1 rounded">Guide</span>
                 </div>
                 <div className="p-3">
-                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-blue-400 transition-colors line-clamp-2">Verdiene mehr mit Referrals</h3>
+                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-blue-400 transition-colors line-clamp-2">Partner-Programm – Verdiene Geld</h3>
                   <div className="flex items-center gap-2 text-xs text-white/50">
-                    <span>10. Okt</span>
-                    <span>7 min</span>
+                    <span>22. Okt</span>
                   </div>
                 </div>
-              </a>
+              </Link>
+            </div>
+            <div className="mt-6 text-center">
+              <Link href="/blog" className="text-xs text-white/70 hover:text-white transition-colors">
+                Zum Blog
+              </Link>
             </div>
           </div>
         </div>

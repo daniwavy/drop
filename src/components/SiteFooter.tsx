@@ -38,7 +38,7 @@ export default function SiteFooter() {
               <li><a href="/datenschutz" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Datenschutz</a></li>
               <li><a href="/impressum" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Impressum</a></li>
               <li><a href="/agb" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">AGB</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Support</a></li>
+              <li><a href="/Teilnahmebedingungen" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Teilnahmebedingungen</a></li>
             </ul>
           </div>
 
