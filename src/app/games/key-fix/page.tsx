@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { useRouter } from "next/navigation";
+import GameInfoSection from "@/components/GameInfoSection";
+import SiteFooter from "@/components/SiteFooter";
 
 // QWERTZ layout target
 const ROWS: string[][] = [
@@ -481,7 +483,29 @@ export default function Page() {
         </div>
       )}
 
+      {/* Game Info Section */}
+      <div className="flex items-center justify-center w-full py-6">
+        <GameInfoSection
+          title="Key Fix"
+          description="Sortiere alle Tasten in die richtige QWERTY-Reihenfolge! Tippe schnell und präzise, um höhere Scores zu erreichen und mehr Tickets zu gewinnen."
+          tags={["Puzzle", "Timing", "Skill", "Brain"]}
+          tips={[
+            "Merke dir die QWERTY-Layout-Reihenfolge",
+            "Schnelligkeit ist wichtiger als Perfektion – nutze Richtungseinweise",
+            "Konzentriere dich auf einen Bereich zur Zeit"
+          ]}
+          rules={[
+            "Das Spiel dauert 60 Sekunden",
+            "Jede richtige Taste bringt Punkte",
+            "Mindestscore für Tickets: 500",
+            "Spielen ist kostenlos"
+          ]}
+          icon="⌨️"
+        />
+      </div>
+
       <style>{css}</style>
+      <SiteFooter />
     </div>
   );
 }

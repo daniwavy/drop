@@ -291,6 +291,9 @@ function ReferralSection({ uid }: { uid: string | null }) {
         ) : (
           <div className="text-sm text-black/60">Fehler beim Laden des Referral-Codes</div>
         )}
+        <div className="mt-4 p-3 rounded-lg border border-black/10">
+          <p className="text-xs text-black/70">Teile deinen Link und verdiene Coins! Für jeden Freund, der sich über deinen Link anmeldet, bekommst ihr beide 500 Coins als Belohnung. Je mehr Freunde du einladest, desto mehr Coins verdienst du!</p>
+        </div>
       </div>
     </div>
   );

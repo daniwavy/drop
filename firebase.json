@@ -1,9 +1,17 @@
 {
-  "functions": [{ "source": "functions", "codebase": "default" }],
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default"
+    }
+  ],
   "firestore": {
     "database": "(default)",
     "location": "nam5",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
+  },
+  "extensions": {
+    "delete-user-data": "firebase/delete-user-data@0.1.25"
   }
 }

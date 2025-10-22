@@ -1044,6 +1044,17 @@ const NeonHoloCard = React.memo(function NeonHoloCard({ title, subtitle, timeLab
 
   // Centralized start handler (called from button, wrapper pointer events and keyboard)
   const startHandler = (ev?: React.SyntheticEvent) => {
+    // Check if current time is between 20:00 and 20:15 (maintenance window)
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const isMaintenanceTime = hours === 20 && minutes < 15;
+
+    if (isMaintenanceTime) {
+      console.log('[MINIGAME CLICK] Maintenance time: 20:00-20:15, blocking access');
+      return;
+    }
+
     try {
       console.log('[MINIGAME CLICK] Start handler invoked, title:', title, 'uid:', uid);
       if (!uid) {
@@ -1075,6 +1086,12 @@ const NeonHoloCard = React.memo(function NeonHoloCard({ title, subtitle, timeLab
     }
   };
 
+  // Check if current time is between 20:00 and 20:15 (maintenance window)
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const isMaintenanceTime = hours === 20 && minutes < 15;
+
   return (
     <div 
       ref={wrapRef} 
@@ -1092,7 +1109,7 @@ const NeonHoloCard = React.memo(function NeonHoloCard({ title, subtitle, timeLab
         type="button"
         aria-label={uid ? "Spiel starten" : "Einloggen zum Spielen"}
         onClick={(e) => { e.stopPropagation(); startHandler(); }}
-        className="card relative w-[120%] -ml-[10%] h-full rounded-2xl overflow-hidden border border-white/10 bg-black/30 backdrop-blur-[2px] shadow-[0_10px_50px_rgba(0,0,0,0.45)]"
+        className={`card relative w-[120%] -ml-[10%] h-full rounded-2xl overflow-hidden border border-white/10 bg-black/30 backdrop-blur-[2px] shadow-[0_10px_50px_rgba(0,0,0,0.45)]`}
         style={{
           transform: 'rotateX(calc(var(--rx, 0) * 1deg)) rotateY(calc(var(--ry, 0) * 1deg))',
           transformStyle: 'preserve-3d',
@@ -1110,6 +1127,22 @@ const NeonHoloCard = React.memo(function NeonHoloCard({ title, subtitle, timeLab
           />
         ) : (
           <img src="/error-frame.svg" alt="Frame" className="absolute inset-0 w-full h-full object-cover rounded-2xl" />
+        )}
+
+        {/* Dark overlay during maintenance */}
+        {isMaintenanceTime && (
+          <div className="absolute inset-0 bg-black/60 z-20 pointer-events-none rounded-2xl" />
+        )}
+
+        {/* Lock icon overlay during maintenance */}
+        {isMaintenanceTime && (
+          <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-12 h-12">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"></path>
+              <circle cx="12" cy="16" r="1" fill="white"></circle>
+            </svg>
+          </div>
         )}
 
         {/* Animated neon border replaced with static border */}
@@ -3965,11 +3998,12 @@ function currentDailyPos() {
                   />
                 </div>
               </div>
-              <p className="mt-2 text-center text-xs text-black/60">Sammle Tickets, um den Pool zu füllen und bessere Preise freizuschalten.</p>
+              <p className="mt-2 text-center text-xs text-black/60">Sammle Tickets und trage sie zum gemeinsamen Pool bei! Je mehr Tickets alle Spieler zusammen sammeln, desto bessere Preise werden für den Pool freigeschalten. Gemeinsam gewinnen wir bessere Rewards!</p>
             </div>
           );
         })()}
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pr-1">
+        <h2 className="mt-3 mb-2 text-left text-base font-bold text-black">Aktueller Pool</h2>
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pr-1">
           {poolResolved.length === 0 && (
             <>
               {Array.from({ length: 8 }).map((_, i) => (
@@ -4016,6 +4050,13 @@ function currentDailyPos() {
       <div className="absolute inset-0 bg-black/80 cursor-pointer" onClick={() => setShowDaily(false)} />
       <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(78vw,720px)] max-h-[86vh] p-4 sm:p-5 overflow-hidden">
         {/* close button removed - rely on overlay click/programmatic close */}
+        {/* Streak Header */}
+        <div className="mt-4 mb-3 max-w-3xl mx-auto px-4">
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Deine tägliche Streak</h2>
+          <p className="text-sm text-gray-600">
+            Hole jeden Tag deine Coins ab und baue eine mächtige Serie auf. Je länger dein Streak, desto höher deine Belohnungen. Verpasse keinen Tag – dein Streak setzt sich automatisch zurück, wenn du einen Tag auslässt. Nutze spezielle Power-ups für noch bessere Gewinne!
+          </p>
+        </div>
         {/* scroll container */}
         <div className="mt-2 overflow-y-auto" style={{ maxHeight: '70vh' }}>
           {/* Streak progress 1–30 */}
@@ -4120,9 +4161,13 @@ function currentDailyPos() {
   {showItems && (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/80" onClick={() => setShowItems(false)} />
-      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,480px)] max-h-[80vh] px-6 pb-6 pt-12 overflow-y-auto">
+      <div className="relative bg-white text-black rounded-2xl shadow-xl w-[min(92vw,480px)] max-h-[80vh] px-6 py-6 overflow-y-auto">
         {/* close button removed - rely on overlay click/programmatic close */}
         <div className="space-y-3">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Shop</h2>
+            <p className="text-sm text-gray-600">Tausche deine Coins gegen exklusive Items ein und steigere deine Chancen auf große Gewinne.</p>
+          </div>
           {buyError && <div className="p-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded">{buyError}</div>}
           {shopItems.filter(it => (it.active ?? true)).map((it) => {
               const owned = itemsOwned[it.id] || 0; // echte Anzahl
@@ -4417,7 +4462,9 @@ function currentDailyPos() {
   <div className={`h-14 ${hideTopOnFooter ? 'bg-transparent' : 'bg-black'}`} style={{ backfaceVisibility: 'hidden' }}>
         {/* Left: Logo */}
         <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10">
-          <img src="/logo.png" alt="DROP" className={`h-4 w-auto select-none drop-logo drop-anim-${logoAnim}`} />
+          <Link href="/" className="block cursor-pointer hover:opacity-80 transition-opacity">
+            <img src="/logo.svg" alt="DROP" className={`h-6 w-auto select-none drop-logo drop-anim-${logoAnim}`} />
+          </Link>
         </div>
         
         {/* Center: Coins Badges */}
@@ -4931,18 +4978,18 @@ function currentDailyPos() {
                 return (
                   <div className="mx-auto" style={{ display: 'flex', flexDirection: 'column', gap: gapValue }} aria-hidden>
                     {/* Headline space */}
-                    <div style={{ paddingTop: '1.25rem', paddingLeft: '0.5rem', paddingRight: '0.5rem' }}>
+                    <div style={{ paddingTop: '1.25rem', paddingLeft: '0.5rem', paddingRight: '0.5rem', textAlign: 'center' }}>
                       <div className="flex items-center justify-center gap-3 flex-col">
                         <div>
                           <img
                             src="/vault-title.svg"
                             alt="Drop Vault"
                             className="vault-title opacity-100"
-                            style={{ width: 'min(52vw, 520px)', height: 'auto', opacity: 1 }}
+                            style={{ width: 'min(52vw, 520px)', height: 'auto', opacity: 1, display: 'block', margin: '0 auto' }}
                           />
                           <p className="text-sm text-white opacity-100 mt-1 text-center"
                              style={{ color: '#ffffff', opacity: 1 }}>
-                            Secure your drops and track claimed rewards
+                            Der Drop Vault ist dein Ort für exklusive, zeitlich limitierte Giveaways! Nutze deine Coins, um an spannenden Verlosungen teilzunehmen und einzigartige Preise zu gewinnen. Je mehr Coins du einsetzt, desto höher deine Chancen auf den Jackpot. Verpasse keine Giveaway-Events und sichere dir deine Lieblingspreise!
                           </p>
                         </div>
                       </div>
@@ -4967,10 +5014,10 @@ function currentDailyPos() {
   </section>
 
       {/* Footer Section */}
-      <section ref={footerSectionRef} className="relative w-screen h-screen bg-black text-white scroll-snap-section border-t border-white/10">
-    <div className="h-full flex flex-col justify-between relative z-10">
+      <section ref={footerSectionRef} className="relative w-screen h-screen bg-black text-white scroll-snap-section border-t border-white/10 overflow-y-auto">
+    <div className="min-h-full flex flex-col relative z-10">
         {/* FAQ Section */}
-        <div className="flex-1 flex items-center justify-center py-12">
+        <div className="flex-1 flex items-center justify-center py-12 pt-32">
           <div className="max-w-4xl mx-auto px-4">
             <h2 className="text-3xl font-bold text-center mb-12">Häufig gestellte Fragen</h2>
               {/* FAQ Tabs */}
@@ -5027,7 +5074,10 @@ function currentDailyPos() {
               <div className="border-t border-white/10" aria-hidden />
             </div>
           </div>
-  <SiteFooter />
+
+  <div className="mt-auto">
+    <SiteFooter />
+  </div>
       </div>
     </section>
   </React.Fragment>

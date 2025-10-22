@@ -3,6 +3,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import GameInfoSection from '@/components/GameInfoSection';
+import SiteFooter from '@/components/SiteFooter';
 
 const GAME_NAME = 'swipe-direction';
 const DURATION_MS = 30_000; // 30 Sekunden
@@ -484,6 +486,28 @@ export default function Page() {
           @keyframes kshake { 0%{ transform: translateX(0);} 25%{ transform: translateX(-6px);} 50%{ transform: translateX(0);} 75%{ transform: translateX(6px);} 100%{ transform: translateX(0);} }
           .shake{ animation: kshake 180ms ease-in-out; }
         `}</style>
+
+      {/* Game Info Section */}
+      <div className="flex items-center justify-center w-full py-6">
+        <GameInfoSection
+          title="Swipe Direction"
+          description="Folge den Pfeilen und wische in die richtige Richtung! Je schneller und präziser deine Reaktion, desto höher dein Score und deine Chance auf Tickets."
+          tags={["Reflexe", "Timing", "Arcade", "Casual"]}
+          tips={[
+            "Achte auf die Pfeile und wische früh",
+            "Halte den Rhythmus – es geht um Konsistenz",
+            "Nutze Mitteilungen um deine Strategie anzupassen"
+          ]}
+          rules={[
+            "Das Spiel dauert 30 Sekunden",
+            "Jede richtige Bewegung bringt Punkte",
+            "Mindestscore für Tickets: 500",
+            "Spielen ist kostenlos"
+          ]}
+          icon="👆"
+        />
+      </div>
+      <SiteFooter />
       </div>
 
     </div>

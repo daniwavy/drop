@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.enterDropCors = exports.enterDrop = exports.grantTickets = void 0;
+exports.resetActiveTodayUsers = exports.trackActiveTodayUsers = exports.enterDrop = exports.grantTickets = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
 const functions = __importStar(require("firebase-functions/v2"));
@@ -124,6 +124,7 @@ exports.grantTickets = functions.https.onCall(async (req) => {
     const uid = req.auth.uid;
     const now = Date.now();
     const dayId = ticketsDateIdFromMs(now);
+    const db = (0, firestore_1.getFirestore)();
     // Debug: log detailed time information (local ISO, Berlin localized string, parts, minutes)
     try {
         const partsDebug = berlinPartsFromMs(now);
@@ -136,7 +137,7 @@ exports.grantTickets = functions.https.onCall(async (req) => {
         console.warn('[grantTickets] DEBUG_TIME_FAILED', String(dbg));
     }
     try {
-        const db = (0, firestore_1.getFirestore)();
+        console.error('===TESTLOG=== STARTING TRANSACTION uid=' + uid);
         const userRef = db.collection('users').doc(uid);
         const counterRef = userRef.collection('countersByDay').doc(dayId);
         const res = await db.runTransaction(async (tx) => {
@@ -167,7 +168,8 @@ exports.grantTickets = functions.https.onCall(async (req) => {
             }, { merge: true });
             return { added: final, total: current + final };
         });
-        console.log('[grantTickets] success', { uid, dayId, added: res.added, total: res.total });
+        const successMsg = `[grantTickets] TX_SUCCESS uid=${uid} dayId=${dayId} added=${res.added} total=${res.total}`;
+        console.log(JSON.stringify({ msg: successMsg }));
         return { ok: true, day: dayId, added: res.added, total: res.total };
     }
     catch (e) {
@@ -175,6 +177,8 @@ exports.grantTickets = functions.https.onCall(async (req) => {
         return { ok: false, code: e.code || 'internal-error', message: e.message || 'Unbekannter Fehler' };
     }
 });
+// Enter a Drop giveaway: record participation per-user
+// Shared helper: perform the participant transaction given uid and entryId
 // Enter a Drop giveaway: record participation per-user
 // Shared helper: perform the participant transaction given uid and entryId
 async function performEnterDropTransaction(db, uid, entryId) {
@@ -225,62 +229,92 @@ exports.enterDrop = functions.https.onCall(async (req) => {
         return { ok: false, code: err?.code || 'internal', message: err?.message || String(err) };
     }
 });
-// CORS-friendly HTTP endpoint as a fallback for local dev (handles preflight and bearer ID token)
-// Use CORS middleware to properly handle preflight and set headers
-exports.enterDropCors = functions.https.onRequest(async (req, res) => {
-    // Allow CORS for local dev and known origins (here permissive for dev)
-    res.setHeader('Access-Control-Allow-Origin', String(req.headers.origin || '*'));
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Max-Age', '3600');
-    if (req.method === 'OPTIONS') {
-        res.status(204).end();
-        return;
-    }
+// Auto-Trigger: Wenn Tickets >= 50 werden, add zu activeTodayUsers
+exports.trackActiveTodayUsers = functions.firestore.onDocumentWritten({ document: 'users/{uid}/countersByDay/{dayId}', region: 'us-central1' }, async (event) => {
     try {
-        // Verify method
-        if (req.method !== 'POST') {
-            res.status(405).json({ ok: false, message: 'Method not allowed' });
+        const uid = event.params.uid || '';
+        const dayId = event.params.dayId || '';
+        const after = event.data?.after?.data?.();
+        if (!after)
             return;
-        }
-        const body = typeof req.body === 'object' ? req.body : JSON.parse(String(req.body || '{}'));
-        const entryId = typeof body?.entryId === 'string' ? body.entryId : (typeof body?.id === 'string' ? body.id : null);
-        if (!entryId) {
-            res.status(400).json({ ok: false, code: 'invalid-argument', message: 'Missing entryId' });
-            return;
-        }
-        // Get Authorization Bearer token (ID token)
-        const authHeader = String(req.headers.authorization || req.headers.Authorization || '');
-        const match = authHeader.match(/^Bearer\s+(.+)$/i);
-        if (!match) {
-            res.status(401).json({ ok: false, code: 'unauthenticated', message: 'Missing Authorization Bearer token' });
-            return;
-        }
-        const idToken = match[1];
-        // Verify ID token using admin SDK (use top-level admin import)
-        const auth = admin.auth();
-        let decoded;
-        try {
-            decoded = await auth.verifyIdToken(idToken);
-        }
-        catch (e) {
-            console.error('[enterDropCors] token verify failed', e);
-            res.status(401).json({ ok: false, code: 'unauthenticated', message: 'Invalid ID token' });
-            return;
-        }
-        const uid = decoded.uid;
-        if (!uid) {
-            res.status(401).json({ ok: false, code: 'unauthenticated', message: 'Invalid token payload' });
-            return;
+        const tickets = after.tickets || 0;
+        console.log(JSON.stringify({ msg: '[trackActiveTodayUsers] triggered', uid, dayId, tickets }));
+        if (tickets < 50) {
+            return; // Not enough tickets
         }
         const db = (0, firestore_1.getFirestore)();
-        const result = await performEnterDropTransaction(db, uid, entryId);
-        res.json({ ok: true, count: result.count });
-        return;
+        // Hole User um referredBy zu finden
+        const userSnap = await db.collection('users').doc(uid).get();
+        if (!userSnap.exists) {
+            console.log(JSON.stringify({ msg: '[trackActiveTodayUsers] user not found', uid }));
+            return;
+        }
+        const userData = userSnap.data();
+        let referredBy = userData?.referredBy || userData?.referred_by;
+        if (!referredBy || typeof referredBy !== 'string') {
+            console.log(JSON.stringify({ msg: '[trackActiveTodayUsers] no referredBy', uid }));
+            return;
+        }
+        // Parse referralCode
+        referredBy = String(referredBy).trim();
+        if (referredBy.startsWith('ref_'))
+            referredBy = referredBy.slice(4);
+        if (referredBy.includes('http')) {
+            referredBy = referredBy.split(/[?#&/]/)[0];
+        }
+        referredBy = referredBy.replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
+        console.log(JSON.stringify({ msg: '[trackActiveTodayUsers] searching for partner', code: referredBy }));
+        // Finde Partner
+        const usersCol = db.collection('users');
+        const start = referredBy;
+        const end = referredBy + '\uf8ff';
+        const q = await usersCol
+            .where(admin.firestore.FieldPath.documentId(), '>=', start)
+            .where(admin.firestore.FieldPath.documentId(), '<=', end)
+            .limit(1)
+            .get();
+        let inviterUid = '';
+        if (!q.empty) {
+            inviterUid = q.docs[0].id;
+        }
+        else {
+            // Fallback zu referralCode field
+            const q2 = await usersCol.where('referralCode', '==', referredBy).limit(1).get();
+            if (!q2.empty)
+                inviterUid = q2.docs[0].id;
+        }
+        if (!inviterUid) {
+            console.log(JSON.stringify({ msg: '[trackActiveTodayUsers] partner not found', code: referredBy }));
+            return;
+        }
+        console.log(JSON.stringify({ msg: '[trackActiveTodayUsers] found partner, writing', inviterUid }));
+        // Schreibe zu activeTodayUsers
+        await db.collection('partners').doc(inviterUid).collection('activeTodayUsers').doc(uid).set({ addedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        console.log(JSON.stringify({ msg: '[trackActiveTodayUsers] SUCCESS', uid, inviterUid }));
     }
-    catch (err) {
-        console.error('[enterDropCors] failed', err);
-        res.status(500).json({ ok: false, code: err?.code || 'internal', message: err?.message || String(err) });
-        return;
+    catch (e) {
+        console.error(JSON.stringify({ msg: '[trackActiveTodayUsers] error', error: String(e) }));
+    }
+});
+// Reset activeTodayUsers jeden Tag um Mitternacht (Berlin Zeit)
+exports.resetActiveTodayUsers = functions.scheduler.onSchedule({ schedule: '0 0 * * *', timeZone: 'Europe/Berlin', region: 'us-central1' }, async () => {
+    try {
+        console.log(JSON.stringify({ msg: '[resetActiveTodayUsers] starting daily reset' }));
+        const db = (0, firestore_1.getFirestore)();
+        const partnersRef = db.collection('partners');
+        const partners = await partnersRef.get();
+        let resetCount = 0;
+        for (const partnerDoc of partners.docs) {
+            const activeTodayUsersRef = partnerDoc.ref.collection('activeTodayUsers');
+            const users = await activeTodayUsersRef.get();
+            for (const userDoc of users.docs) {
+                await userDoc.ref.delete();
+                resetCount++;
+            }
+        }
+        console.log(JSON.stringify({ msg: '[resetActiveTodayUsers] SUCCESS', deletedDocs: resetCount }));
+    }
+    catch (e) {
+        console.error(JSON.stringify({ msg: '[resetActiveTodayUsers] error', error: String(e) }));
     }
 });

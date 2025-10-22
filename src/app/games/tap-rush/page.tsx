@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getApp, getApps, initializeApp } from 'firebase/app';
+import GameInfoSection from '@/components/GameInfoSection';
+import SiteFooter from '@/components/SiteFooter';
 
 function ensureFirebase() {
   const cfg: any = {
@@ -645,7 +647,7 @@ const diamondsFromScore = score >= BONUS_START
   };
 
   return (
-    <div className="min-h-screen w-screen bg-white flex items-center justify-center p-6 pt-16 overflow-hidden">
+    <div className="min-h-screen w-screen bg-white">
       {/* Fixed Top Bar (like drop page) */}
       <div className="fixed top-0 left-0 right-0 z-60 bg-black">
         <img src="/logo.png" alt="drop" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-auto select-none" />
@@ -665,48 +667,87 @@ const diamondsFromScore = score >= BONUS_START
           <div className="w-16" />
         </div>
       </div>
-      <div className="relative z-10 w-full max-w-xl">
-        {/* Only render the card while not finished */}
-        {!finished && (
-          <div className="relative rounded-3xl bg-white shadow-[0_20px_80px_rgba(0,0,0,0.15)] p-5 sm:p-6 flex flex-col overflow-hidden">
-            {/* Vignette feedback overlay */}
-            {flash && (
-              <div className="fixed inset-0 z-40 pointer-events-none">
-                <div className={`absolute inset-0 vignette ${flash === 'hit' ? 'vignette-hit' : 'vignette-miss'}`} />
-              </div>
-            )}
-            {/* Game content (only shown while not finished) */}
-            <>
-              {/* HUD */}
-              <div className="flex items-center justify-between gap-2">
-                <div className={`px-3 py-1 rounded-full bg-black text-white text-sm font-semibold shadow ${intro ? 'wave-item' : ''}`} style={intro ? { animationDelay: '40ms' } : undefined}>
-                  Score: <span className={`tabular-nums inline-block ${scoreBump ? 'score-bump' : ''}`}>{Math.floor(displayScore)}</span>
+      {/* Scrollable page content */}
+      <div className="pt-16">
+        {/* Game card with Leaderboard */}
+        <div className="w-full py-6 px-4">
+          <div className="grid grid-cols-1 md:grid-cols-[256px_1fr_256px] gap-8 max-w-6xl mx-auto items-center">
+            {/* Leaderboard Dummy - hidden on mobile, shown on md+ */}
+            <div className="hidden md:block sticky top-20">
+              <div className="rounded-3xl bg-white shadow-[0_20px_80px_rgba(0,0,0,0.15)] p-5 sm:p-6">
+                <h3 className="text-lg font-bold text-black mb-4">🏆 Bestenliste</h3>
+                <ul className="space-y-3">
+                  {[
+                    { rank: 1, name: "MaxTapper", score: 2850, emoji: "🥇" },
+                    { rank: 2, name: "SpeedDemon", score: 2420, emoji: "🥈" },
+                    { rank: 3, name: "TapMaster", score: 2180, emoji: "🥉" },
+                    { rank: 4, name: "QuickFinger", score: 1950 },
+                    { rank: 5, name: "ProTapper", score: 1820 }
+                  ].map((entry) => (
+                    <li key={entry.rank} className="flex items-center gap-2 text-sm">
+                      <span className="text-lg w-6">{entry.emoji || `#${entry.rank}`}</span>
+                      <span className="flex-1 font-medium text-gray-800 truncate">{entry.name}</span>
+                      <span className="font-bold text-gray-900 tabular-nums">{entry.score}</span>
+                    </li>
+                  ))}
+                </ul>
+                
+                {/* Your Position */}
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <li className="flex items-center gap-2 text-sm list-none">
+                    <span className="text-lg w-6">👤</span>
+                    <span className="flex-1 font-medium text-gray-800 truncate">Du</span>
+                    <span className="font-bold text-gray-900 tabular-nums">1240</span>
+                  </li>
+                  <p className="text-xs text-gray-500 mt-2">Platz: #42</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className={`px-3 py-1 rounded-full bg-amber-500 text-black text-sm font-semibold shadow ${comboBump ? 'combo-bump' : ''} ${intro ? 'wave-item' : ''}`} style={intro ? { animationDelay: '100ms' } : undefined}>
-                    Combo ×<span className="tabular-nums">{Math.max(1, combo)}</span>
-                  </div>
-                  <div
-                    className={`px-3 py-1 rounded-full text-sm font-semibold shadow ${lowTime ? 'bg-rose-600 text-white timer-pulse' : 'bg-black text-white'} ${intro ? 'wave-item' : ''}`}
-                    style={intro ? { animationDelay: '160ms' } : undefined}
-                  >
-                    Zeit: <span className="tabular-nums">{seconds}s</span>
-                  </div>
-                </div>
               </div>
+            </div>
 
-              {/* Grid (scrolls inside card) */}
-              <div className={`mt-5 flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-2 pt-1 ${intro ? 'pointer-events-none' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
-                <div className="grid grid-cols-4 gap-3 pb-2">
-                  {Array.from({ length: GRID }).map((_, i) => {
-                    const isTarget = i === target && running;
-                    const flashCell = false;
-                    const flashCls = '';
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => onCell(i)}
-                        className={`group select-none aspect-square rounded-2xl border transition-all active:scale-[0.97] ${intro ? 'wave-item' : ''} ${
+            {/* Game card - centered in middle column */}
+            <div className="flex items-center justify-center">
+              <div className="relative z-10 w-full max-w-xl">
+            {/* Only render the card while not finished */}
+            {!finished && (
+              <div className="relative rounded-3xl bg-white shadow-[0_20px_80px_rgba(0,0,0,0.15)] p-5 sm:p-6 flex flex-col overflow-hidden">
+                {/* Vignette feedback overlay */}
+                {flash && (
+                  <div className="fixed inset-0 z-40 pointer-events-none">
+                    <div className={`absolute inset-0 vignette ${flash === 'hit' ? 'vignette-hit' : 'vignette-miss'}`} />
+                  </div>
+                )}
+                {/* Game content (only shown while not finished) */}
+                <>
+                  {/* HUD */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className={`px-3 py-1 rounded-full bg-black text-white text-sm font-semibold shadow ${intro ? 'wave-item' : ''}`} style={intro ? { animationDelay: '40ms' } : undefined}>
+                      Score: <span className={`tabular-nums inline-block ${scoreBump ? 'score-bump' : ''}`}>{Math.floor(displayScore)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className={`px-3 py-1 rounded-full bg-amber-500 text-black text-sm font-semibold shadow ${comboBump ? 'combo-bump' : ''} ${intro ? 'wave-item' : ''}`} style={intro ? { animationDelay: '100ms' } : undefined}>
+                        Combo ×<span className="tabular-nums">{Math.max(1, combo)}</span>
+                      </div>
+                      <div
+                        className={`px-3 py-1 rounded-full text-sm font-semibold shadow ${lowTime ? 'bg-rose-600 text-white timer-pulse' : 'bg-black text-white'} ${intro ? 'wave-item' : ''}`}
+                        style={intro ? { animationDelay: '160ms' } : undefined}
+                      >
+                        Zeit: <span className="tabular-nums">{seconds}s</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Grid (scrolls inside card) */}
+                  <div className={`mt-5 flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-2 pt-1 ${intro ? 'pointer-events-none' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
+                    <div className="grid grid-cols-4 gap-3 pb-2">
+                      {Array.from({ length: GRID }).map((_, i) => {
+                        const isTarget = i === target && running;
+                        const flashCell = false;
+                        const flashCls = '';
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => onCell(i)}
+                            className={`group select-none aspect-square rounded-2xl border transition-all active:scale-[0.97] ${intro ? 'wave-item' : ''} ${
                           isTarget
                             ? 'bg-white text-black border-black shadow ring-4 ring-black animate-pulse'
                             : hazard && hazard.includes(i)
@@ -735,17 +776,46 @@ const diamondsFromScore = score >= BONUS_START
                           {isTarget ? '✛' : hazard && hazard.includes(i) ? 'x' : losCell === i ? '🎟' : ticketCell === i ? '🎟' : ''}
                         </span>
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-              {/* Controls removed: no pause allowed */}
-              <div className="mt-5" />
-            </>
+                  {/* Controls removed: no pause allowed */}
+                  <div className="mt-5" />
+                </>
+              </div>
+            )}
+              </div>
+            </div>
+
+            {/* Right spacer - empty on md+ */}
+            <div className="hidden md:block" />
           </div>
-        )}
+        </div>
+
+        {/* Game Info Section - scrolls below game card */}
+        <div className="flex items-center justify-center w-full py-6">
+          <GameInfoSection
+            title="Tap Rush"
+            description="Tippe so schnell du kannst auf den grünen Button, um Punkte zu sammeln und Tickets zu gewinnen! Je schneller und präziser deine Taps, desto höher dein Score."
+            tags={["Action", "Arcade", "Skill", "Casual"]}
+            tips={[
+              "Tippe schnell und rhythmisch für bessere Combos",
+              "Vermeide rote Hindernisse – sie kosten Punkte!",
+              "Nutze Power-ups wenn sie erscheinen für extra Multiplikatoren"
+            ]}
+            rules={[
+              "Das Spiel dauert 30 Sekunden",
+              "Jeder erfolgreicher Tap gibt Punkte",
+              "Mindestscore für Tickets: 500",
+              "Spielen ist kostenlos"
+            ]}
+            icon="⚡"
+          />
+        </div>
       </div>
+
       {/* Global Countdown Overlay (fullscreen, outside card) */}
       {countdown != null && countdown > 0 && (
         <div className="fixed inset-0 z-30 bg-white flex items-center justify-center">
@@ -758,7 +828,7 @@ const diamondsFromScore = score >= BONUS_START
           </div>
         </div>
       )}
-      {finished && (
+      {finished === true && (
         <div className="fixed inset-0 z-40 flex items-center justify-center">
           <div
             className="h-12 w-12 rounded-full border-4 border-black/20 border-t-black animate-spin"
@@ -766,6 +836,7 @@ const diamondsFromScore = score >= BONUS_START
           />
         </div>
       )}
+
       <style jsx global>{`
         @keyframes popIn {
           0% { transform: scale(0); opacity: 0; }
@@ -843,6 +914,7 @@ const diamondsFromScore = score >= BONUS_START
         @keyframes crossIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
         .cross-in { animation: crossIn 180ms cubic-bezier(.2,.8,.2,1); will-change: opacity, transform; }
       `}</style>
+      <SiteFooter />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 
 export default function SimpleTopbar() {
   return (
@@ -20,7 +21,9 @@ export default function SimpleTopbar() {
       <div className="h-14 bg-black" style={{ backfaceVisibility: 'hidden' }}>
         {/* Left: Logo */}
         <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10">
-          <Image src="/logo.png" alt="DROP" width={64} height={16} className={`h-4 w-auto select-none drop-logo drop-anim-0`} priority />
+          <Link href="/" className="block cursor-pointer hover:opacity-80 transition-opacity">
+            <Image src="/logo.svg" alt="DROP" width={64} height={16} className={`h-6 w-auto select-none drop-logo drop-anim-0`} priority />
+          </Link>
         </div>
       </div>
     </div>

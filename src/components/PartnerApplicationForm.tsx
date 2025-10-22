@@ -35,7 +35,7 @@ export default function PartnerApplicationForm({ onSuccessAction }: PartnerAppli
     if (!name.trim()) return setError('Name ist erforderlich');
     setSubmitting(true);
     try {
-      const appRef = doc(db, 'applications', userId);
+      const appRef = doc(db, 'partners', userId);
       const cleaned = websites.map((w) => (w || '').trim()).filter(Boolean);
       await setDoc(appRef, {
         name: name.trim(),

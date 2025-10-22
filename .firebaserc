@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "drop-1c4ea"
+  },
+  "targets": {},
+  "etags": {
+    "drop-1c4ea": {
+      "extensionInstances": {
+        "delete-user-data": "b7c86a84fbb80f8d879e0dc9f5cf6cdc2269b06699653c42f65a82c1e370c285"
+      }
+    }
   }
 }

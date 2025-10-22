@@ -1,11 +1,14 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 // Silence console output in Cloud Functions to minimize noisy logs
+// DISABLED FOR DEBUGGING — keep commented out so logs are visible
+/*
 const _consoleMethods = ['log','debug','info','warn','error'] as const;
 for (const m of _consoleMethods) {
   // @ts-ignore
   console[m] = () => {};
 }
+*/
 import * as admin from "firebase-admin";
 
 admin.initializeApp();
@@ -15,8 +18,12 @@ const ACTIVE_SEASON = "S1";
 const MIN_TICKETS_FOR_RAFFLE = 50;
 
 // Re-export functions implemented in src/index.ts so the deploy packager picks them up.
-import { enterDrop, enterDropCors } from './src/index';
-export { enterDrop, enterDropCors };
+import { enterDrop, trackActiveTodayUsers, resetActiveTodayUsers } from './src/index';
+export { enterDrop, trackActiveTodayUsers, resetActiveTodayUsers };
+
+// Import and re-export the Auth onCreate handler
+import { onUserCreateTest } from './onUserCreate';
+export { onUserCreateTest };
 
 const SHARDS = 32;
 function hashUidToShard(uid: string, mod = SHARDS) {
@@ -221,6 +228,8 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 // receive an unintended start balance. This will reset any non-zero coins on
 // create for non-referred users and write an audit entry. Idempotent via
 // `startCoinCorrectionApplied` flag.
+// NOTE: This fixes the issue with legacy onUserCreate auth trigger setting coins to 1000.
+// Now it properly resets coins to 0 for non-referred users.
 export const onUserDocumentCreate = onDocumentWritten({ document: 'users/{uid}', region: 'us-central1' }, async (event) => {
   try {
     const before = event.data?.before?.data?.();
@@ -924,6 +933,13 @@ export const processReferralReward = onDocumentWritten({ document: 'users/{uid}'
     if (cand && typeof cand === 'string') referredBy = String(cand).trim();
     if (!referredBy) return;
     if (referredBy.startsWith('ref_')) referredBy = referredBy.slice(4);
+    
+    // Extract code from URL if it contains query params (e.g., "Ds06kcQnhttp://localhost:3000/drop?ref=ref_Ds06kcQn")
+    // Take only the first part before any special chars
+    if (referredBy.includes('http')) {
+      referredBy = referredBy.split(/[?#&/]/)[0];
+    }
+    referredBy = referredBy.replace(/[^a-zA-Z0-9]/g, '').slice(0, 20); // sanitize to 20 chars alphanumeric
 
     const REWARD = 500;
 
@@ -940,41 +956,205 @@ export const processReferralReward = onDocumentWritten({ document: 'users/{uid}'
         const q2 = await usersCol.where('referralCode', '==', referredBy).limit(1).get();
         if (!q2.empty) inviterUid = q2.docs[0].id;
       }
+      console.log('[processReferralReward] resolved inviter', { referredBy, inviterUid });
     } catch (e) {
       console.warn('[processReferralReward] inviter resolution failed', e);
     }
 
     // Apply rewards transactionally with an idempotency flag on the new user doc
-    await db.runTransaction(async (tx) => {
-      const newRef = db.doc(`users/${uid}`);
-      const newSnap = await tx.get(newRef);
-      if (!newSnap.exists) return;
+    try {
+      await db.runTransaction(async (tx) => {
+        const newRef = db.doc(`users/${uid}`);
+        const newSnap = await tx.get(newRef);
+        if (!newSnap.exists) {
+          console.warn('[processReferralReward] newSnap does not exist', { uid });
+          return;
+        }
 
-      // If flag present, don't re-apply
-      const alreadyGiven = !!newSnap.get('referralRewardGiven');
-      if (alreadyGiven) return;
+        // If flag present, don't re-apply
+        const alreadyGiven = !!newSnap.get('referralRewardGiven');
+        if (alreadyGiven) {
+          console.warn('[processReferralReward] already given', { uid });
+          return;
+        }
 
-      // Give coins to the new user and mark as given
-      tx.set(newRef, {
-        coins: admin.firestore.FieldValue.increment(REWARD),
-        referralRewardGiven: true,
-        referralRewardGivenAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
+        // Give coins to the new user and mark as given
+        tx.set(newRef, {
+          coins: admin.firestore.FieldValue.increment(REWARD),
+          referralRewardGiven: true,
+          referralRewardGivenAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
 
-      if (inviterUid) {
-        const inviterRef = db.doc(`users/${inviterUid}`);
-        tx.set(inviterRef, { coins: admin.firestore.FieldValue.increment(REWARD), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        if (inviterUid) {
+          const inviterRef = db.doc(`users/${inviterUid}`);
+          tx.set(inviterRef, { coins: admin.firestore.FieldValue.increment(REWARD), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
 
-        // Audit log under inviter's subcollection
-        const logRef = db.doc(`users/${inviterUid}/referralCredits/${uid}`);
-        tx.set(logRef, { referredUid: uid, amount: REWARD, ts: admin.firestore.FieldValue.serverTimestamp() });
-      }
-    });
+          // Audit log under inviter's subcollection
+          const logRef = db.doc(`users/${inviterUid}/referralCredits/${uid}`);
+          tx.set(logRef, { referredUid: uid, amount: REWARD, ts: admin.firestore.FieldValue.serverTimestamp() });
+        } else {
+          console.warn('[processReferralReward] inviterUid is null', { uid, referredBy });
+        }
+      });
+    } catch (txErr) {
+      console.error('[processReferralReward] transaction failed', { uid, referredBy, inviterUid, error: String(txErr) });
+      throw txErr;
+    }
 
     console.log('[processReferralReward] applied referral reward for', uid, 'inviter=', inviterUid || 'unknown');
   } catch (err) {
     console.error('[processReferralReward] error', err);
     throw err;
+  }
+});
+
+export const onNewUserReferred = onDocumentWritten({ document: 'users/{uid}/referralCredits/{newUid}', region: 'us-central1' }, async (event) => {
+  try {
+    const before = event.data?.before?.data?.();
+    const after = event.data?.after?.data?.();
+    if (before || !after) return;
+    
+    const inviterUid = String((event.params as any)?.uid || '');
+    const newUid = String((event.params as any)?.newUid || '');
+    
+    console.log('[onNewUserReferred] incrementing partners/' + inviterUid);
+    
+    await db.doc(`partners/${inviterUid}`).set({
+      referralsCount: admin.firestore.FieldValue.increment(1),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    
+    console.log('[onNewUserReferred] ✓ done', { inviterUid });
+  } catch (err) {
+    console.error('[onNewUserReferred] error', err);
+  }
+});
+
+// rotateMinigame & rotateMinigameNow from defaultlol/index.js
+const EXT_OK = [".png", ".jpg", ".jpeg", ".webp"];
+
+async function listGameFiles() {
+  try {
+    const snap = await db.collection("minigames").where("active", "==", true).get();
+    const names = snap.docs
+      .map((d) => d.data()?.previewImage)
+      .filter((n) => typeof n === "string" && n.length > 0);
+    return names;
+  } catch (err) {
+    throw err;
+  }
+}
+
+async function pickRandomExcludingPrev(prevPath: string | null) {
+  const files = await listGameFiles();
+  const prevFile = prevPath ? prevPath.split("/").pop() : null;
+
+  if (!files || files.length === 0) {
+    return null;
+  }
+
+  if (files.length === 1) {
+    return files[0];
+  }
+
+  const pool = files.filter((n) => n !== prevFile);
+  if (pool.length === 0) return files[0];
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+  return chosen;
+}
+
+export const rotateMinigame = onSchedule(
+  { schedule: "0 0,5,10,15,20 * * *", timeZone: "Europe/Berlin" },
+  async () => {
+    try {
+      const docRef = db.collection("config").doc("currentMinigame");
+
+      await db.runTransaction(async (tx) => {
+        const curSnap = await tx.get(docRef);
+        const prevPath = curSnap.exists ? curSnap.data()?.storagePath : null;
+
+        const chosenFile = await pickRandomExcludingPrev(prevPath);
+        if (!chosenFile) {
+          return;
+        }
+
+        const storagePath = `/minigame-previews/${chosenFile}`;
+        const nowMs = Date.now();
+        const now = admin.firestore.Timestamp.fromMillis(nowMs);
+        const nextAt = admin.firestore.Timestamp.fromMillis(nowMs + 5 * 60 * 60 * 1000);
+
+        tx.set(
+          docRef,
+          {
+            id: chosenFile,
+            storagePath,
+            updatedAt: now,
+            nextAt,
+          },
+          { merge: true }
+        );
+      });
+    } catch (err) {
+      throw err;
+    }
+  }
+);
+
+export const rotateMinigameNow = onCall(async (request: any) => {
+  try {
+    const docRef = db.collection("config").doc("currentMinigame");
+    const data = request.data;
+    const context = request;
+
+    const forcePath = data && typeof data.force === "string" ? data.force : null;
+    const isAdmin = !!(context && context.auth && (context.auth as any).token && (context.auth as any).token.admin === true);
+
+    if (forcePath && !isAdmin) {
+      return { ok: false, error: "unauthorized: admin claim required to force rotation" };
+    }
+
+    const result = await db.runTransaction(async (tx) => {
+      const curSnap = await tx.get(docRef);
+      const prevPath = curSnap.exists ? curSnap.data()?.storagePath : null;
+
+      let chosenFile;
+      if (forcePath) {
+        const files = await listGameFiles();
+        if (!files.includes(forcePath)) {
+          throw new Error("force-path-not-found");
+        }
+        chosenFile = forcePath;
+      } else {
+        chosenFile = await pickRandomExcludingPrev(prevPath);
+      }
+
+      if (!chosenFile) {
+        return { ok: false, error: "no-minigame-available" };
+      }
+
+      const storagePath = `/minigame-previews/${chosenFile}`;
+      const nowMs = Date.now();
+      const now = admin.firestore.Timestamp.fromMillis(nowMs);
+      const nextAt = admin.firestore.Timestamp.fromMillis(nowMs + 5 * 60 * 60 * 1000);
+
+      tx.set(
+        docRef,
+        {
+          id: chosenFile,
+          storagePath,
+          updatedAt: now,
+          nextAt,
+        },
+        { merge: true }
+      );
+
+      return { ok: true, storagePath };
+    });
+
+    return result;
+  } catch (err) {
+    const msg = err && (err as Error).message ? (err as Error).message : String(err);
+    return { ok: false, error: msg };
   }
 });
