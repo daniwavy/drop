@@ -34,6 +34,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Ezoic Site Verification */}
+        <meta name="ezoic-site-verification" content="UlILyx6We0YEpDNqVkiLozpQUWU9Mz" />
+        
         {/* Ezoic Privacy Scripts - Must load before header script */}
         <Script 
           src="https://cmp.gatekeeperconsent.com/min.js" 

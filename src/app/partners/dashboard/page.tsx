@@ -324,9 +324,12 @@ export default function PartnerDashboardPage() {
                 <strong>Bedingungen für Commission-Zahlungen:</strong> Angeworbene Nutzer zählen direkt, sobald sie sich über deinen Link registrieren und ihren Account verifizieren. Du erhältst 10-20% des Werbeumsatzes dieser Nutzer – abhängig von deiner aktuellen Commission-Stufe. Die Commission wird auf Basis des Gesamtumsatzes deiner geworbenen Nutzer berechnet und monatlich ausgezahlt. Du kannst deine Einnahmen auszahlen lassen, sobald du mindestens 10€ gesammelt hast. Es gibt keine Wartezeit – sobald dein Nutzer einen Umsatz generiert, verdienst du direkt deine Commission.
               </p>
               <div className="flex justify-center mt-6">
-                <button className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors">
+                <a 
+                  href="mailto:partner@drop-arcade.com"
+                  className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors inline-block"
+                >
                   Kontakt aufnehmen
-                </button>
+                </a>
               </div>
             </div>
           </div>
