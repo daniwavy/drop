@@ -1,0 +1,2 @@
+# Redirect to Ezoic ads.txt manager
+# This file should redirect to: https://srv.adstxtmanager.com/19390/drop-arcade.com
