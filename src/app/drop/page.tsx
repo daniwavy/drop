@@ -12,6 +12,7 @@ import CardFrame from '../../components/CardFrame';
 import RandomBackgrounds from '../../components/RandomBackgrounds';
 import Link from 'next/link';
 import SiteFooter from '@/components/SiteFooter';
+import EzoicAd from '@/components/EzoicAd';
 import { ref, getDownloadURL } from "firebase/storage";
 import { storage } from "../../lib/firebase";
 // --- Cached getDownloadURL with memory + localStorage TTL ---
@@ -3920,6 +3921,8 @@ function currentDailyPos() {
   // ];
   return (
     <React.Fragment>
+    {/* Ezoic Sidebar Floating Ads */}
+    <EzoicAd placementId={[107, 108]} />
     {loading && (
       <div className="fixed inset-0 bg-black z-[9999]" role="status" aria-live="polite">
         <div className="relative w-full h-full flex items-center justify-center">
