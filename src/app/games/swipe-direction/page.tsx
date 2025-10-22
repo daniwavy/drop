@@ -374,10 +374,9 @@ export default function Page() {
   // Cancel RAF on unmount
   useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
-  const timePct = Math.max(0, Math.min(100, (timeLeft / DURATION_MS) * 100));
   // UI
   return (
-    <div className="min-h-dvh w-full bg-white flex items-center justify-center">
+    <div className="min-h-dvh w-full bg-white flex flex-col">
       {/* Fixed Top Bar */}
       <div className="fixed top-0 left-0 right-0 z-60 bg-black">
         <img src="/logo.png" alt="drop" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-auto select-none" />
@@ -396,120 +395,124 @@ export default function Page() {
       {/* Top bar spacer (external bar is fixed) */}
       <div className="h-16" />
 
-      {finished && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div className="h-12 w-12 rounded-full border-4 border-black/20 border-t-black animate-spin" aria-label="Lädt" />
-        </div>
-      )}
-
-      {/* Vignette flash overlay */}
-      {flash && (
-        <div className="fixed inset-0 z-40 pointer-events-none">
-          <div className={`absolute inset-0 vignette ${flash === 'ok' ? 'vignette-hit' : 'vignette-miss'}`} />
-        </div>
-      )}
-
-      {/* Countdown overlay (outside game card) */}
-      {countdown != null && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div className="text-[120px] font-black text-black/80 drop-shadow-[0_8px_24px_rgba(0,0,0,0.15)] animate-[scaleIn_320ms_cubic-bezier(.2,.8,.2,1)]">
-            {countdown}
-          </div>
-        </div>
-      )}
-
-      {/* Game card */}
-      <div
-        className={`relative select-none rounded-2xl border bg-white/90 backdrop-blur-[2px] shadow-[0_20px_60px_rgba(0,0,0,0.12)] w-[min(92vw,520px)] h-[min(70vh,520px)] flex flex-col items-center justify-center ${finished || countdown != null ? 'invisible' : ''} border-black/10`}
-        ref={cardRef}
-      >
-        <div className="pointer-events-none absolute inset-0 rounded-2xl" style={{ background: 'radial-gradient(1200px 500px at 50% 20%, rgba(0,0,0,0.06), transparent 60%)' }} />
-        {/* ambient moving dots */}
-        <div className="pointer-events-none absolute inset-0 rounded-2xl ambient" />
-
-        {/* In-card HUD (hidden during countdown) */}
-        {countdown == null && (
-          <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 z-10">
-            <div className="px-3 py-1 rounded-full bg-black text-white/95 text-sm font-semibold shadow-sm">
-              Zeit: <span className="tabular-nums ml-1">{Math.ceil(timeLeft/1000)}</span>s
-            </div>
-            <div className="px-3 py-1 rounded-full bg-black text-white/95 text-sm font-semibold shadow-sm">
-              Score: <span className="tabular-nums ml-1">{score}</span>
-            </div>
-          </div>
-        )}
-
-        {/* floating score bursts (hidden during countdown) */}
-        {countdown == null && (
-          <div className="pointer-events-none absolute inset-0">
-            {bursts.map(b => (
-              <div key={b.id} className={`burst ${b.kind}`}>{b.text}</div>
-            ))}
-          </div>
-        )}
-
-        {countdown == null && !finished && (
-          <div className="absolute" style={{ left: `${arrowPos.x}%`, top: `${arrowPos.y}%`, transform: 'translate(-50%, -50%)' }}>
-            <div className="arrow-label">{current.label}</div>
-          </div>
-        )}
-
+      {/* Main content wrapper */}
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-12 w-full">
         {finished && (
-          <div className="text-xl text-black">Fertig…</div>
+          <div className="fixed inset-0 z-40 flex items-center justify-center">
+            <div className="h-12 w-12 rounded-full border-4 border-black/20 border-t-black animate-spin" aria-label="Lädt" />
+          </div>
         )}
-        <style jsx>{`
-          @keyframes breathe { 0%,100%{ transform: translateZ(0) scale(1);} 50%{ transform: translateZ(0) scale(1.03);} }
-          @keyframes pop2 { from{ transform: translateZ(0) scale(.92);} to{ transform: translateZ(0) scale(1);} }
-          @keyframes scaleIn { from{ transform: scale(.8); opacity: .4;} to{ transform: scale(1); opacity: 1; } }
-          .arrow-label{ font-size: 140px; font-weight: 900; line-height: 1; color: #0b0b0c; text-shadow: 0 8px 22px rgba(0,0,0,.18); animation: pop2 140ms ease-out; }
-          :global{ @keyframes vignettePulse { 0% { opacity: 0; transform: scale(0.98); } 50% { opacity: 0.75; transform: scale(1); } 100% { opacity: 0; transform: scale(1.01); } } }
-          :global(.vignette){ animation: vignettePulse 0.32s ease-out forwards; }
-          :global(.vignette-hit){
-            background: radial-gradient(ellipse at center, transparent 58%, rgba(16,185,129,0.08) 72%, rgba(16,185,129,0.18) 88%, rgba(16,185,129,0.25) 100%);
-            mix-blend-mode: screen; filter: blur(8px);
-          }
-          :global(.vignette-miss){
-            background: radial-gradient(ellipse at center, transparent 58%, rgba(244,63,94,0.09) 72%, rgba(244,63,94,0.18) 88%, rgba(244,63,94,0.26) 100%);
-            mix-blend-mode: screen; filter: blur(8px); animation-duration: 0.36s;
-          }
-          @keyframes dotsMove { 0%{ background-position: 0 0, 80px 120px; } 100%{ background-position: 120px 160px, 0 0; } }
-          .ambient{ background-image:
-              radial-gradient(circle 1px at 20px 20px, rgba(0,0,0,.06) 99%, transparent 100%),
-              radial-gradient(circle 1px at 60px 60px, rgba(0,0,0,.045) 99%, transparent 100%);
-            background-size: 120px 160px, 120px 160px;
-            animation: dotsMove 12s linear infinite;
-          }
-          @keyframes burstUp { from{ transform: translate(-50%,-40%) scale(.9); opacity:.0;} 30%{opacity:1;} to{ transform: translate(-50%,-120%) scale(1); opacity:0; } }
-          .burst{ position:absolute; left:50%; top:50%; transform: translate(-50%,-40%); font-weight:900; font-size:28px; text-shadow: 0 6px 18px rgba(0,0,0,.18); animation: burstUp .65s ease-out forwards; }
-          .burst.ok{ color:#10b981; }
-          .burst.bad{ color:#f43f5e; }
-          @keyframes kshake { 0%{ transform: translateX(0);} 25%{ transform: translateX(-6px);} 50%{ transform: translateX(0);} 75%{ transform: translateX(6px);} 100%{ transform: translateX(0);} }
-          .shake{ animation: kshake 180ms ease-in-out; }
-        `}</style>
 
-      {/* Game Info Section */}
-      <div className="flex items-center justify-center w-full py-6">
-        <GameInfoSection
-          title="Swipe Direction"
-          description="Folge den Pfeilen und wische in die richtige Richtung! Je schneller und präziser deine Reaktion, desto höher dein Score und deine Chance auf Tickets."
-          tags={["Reflexe", "Timing", "Arcade", "Casual"]}
-          tips={[
-            "Achte auf die Pfeile und wische früh",
-            "Halte den Rhythmus – es geht um Konsistenz",
-            "Nutze Mitteilungen um deine Strategie anzupassen"
-          ]}
-          rules={[
-            "Das Spiel dauert 30 Sekunden",
-            "Jede richtige Bewegung bringt Punkte",
-            "Mindestscore für Tickets: 500",
-            "Spielen ist kostenlos"
-          ]}
-          icon="👆"
-        />
+        {/* Vignette flash overlay */}
+        {flash && (
+          <div className="fixed inset-0 z-40 pointer-events-none">
+            <div className={`absolute inset-0 vignette ${flash === 'ok' ? 'vignette-hit' : 'vignette-miss'}`} />
+          </div>
+        )}
+
+        {/* Countdown overlay (outside game card) */}
+        {countdown != null && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center">
+            <div className="text-[120px] font-black text-black/80 drop-shadow-[0_8px_24px_rgba(0,0,0,0.15)] animate-[scaleIn_320ms_cubic-bezier(.2,.8,.2,1)]">
+              {countdown}
+            </div>
+          </div>
+        )}
+
+        {/* Game card */}
+        <div
+          className={`relative select-none rounded-2xl border bg-white/90 backdrop-blur-[2px] shadow-[0_20px_60px_rgba(0,0,0,0.12)] w-[min(92vw,520px)] h-[min(70vh,520px)] flex flex-col items-center justify-center ${finished || countdown != null ? 'invisible' : ''} border-black/10`}
+          ref={cardRef}
+        >
+          <div className="pointer-events-none absolute inset-0 rounded-2xl" style={{ background: 'radial-gradient(1200px 500px at 50% 20%, rgba(0,0,0,0.06), transparent 60%)' }} />
+          {/* ambient moving dots */}
+          <div className="pointer-events-none absolute inset-0 rounded-2xl ambient" />
+
+          {/* In-card HUD (hidden during countdown) */}
+          {countdown == null && (
+            <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 z-10">
+              <div className="px-3 py-1 rounded-full bg-black text-white/95 text-sm font-semibold shadow-sm">
+                Zeit: <span className="tabular-nums ml-1">{Math.ceil(timeLeft/1000)}</span>s
+              </div>
+              <div className="px-3 py-1 rounded-full bg-black text-white/95 text-sm font-semibold shadow-sm">
+                Score: <span className="tabular-nums ml-1">{score}</span>
+              </div>
+            </div>
+          )}
+
+          {/* floating score bursts (hidden during countdown) */}
+          {countdown == null && (
+            <div className="pointer-events-none absolute inset-0">
+              {bursts.map(b => (
+                <div key={b.id} className={`burst ${b.kind}`}>{b.text}</div>
+              ))}
+            </div>
+          )}
+
+          {countdown == null && !finished && (
+            <div className="absolute" style={{ left: `${arrowPos.x}%`, top: `${arrowPos.y}%`, transform: 'translate(-50%, -50%)' }}>
+              <div className="arrow-label">{current.label}</div>
+            </div>
+          )}
+
+          {finished && (
+            <div className="text-xl text-black">Fertig…</div>
+          )}
+          <style jsx>{`
+            @keyframes breathe { 0%,100%{ transform: translateZ(0) scale(1);} 50%{ transform: translateZ(0) scale(1.03);} }
+            @keyframes pop2 { from{ transform: translateZ(0) scale(.92);} to{ transform: translateZ(0) scale(1);} }
+            @keyframes scaleIn { from{ transform: scale(.8); opacity: .4;} to{ transform: scale(1); opacity: 1; } }
+            .arrow-label{ font-size: 140px; font-weight: 900; line-height: 1; color: #0b0b0c; text-shadow: 0 8px 22px rgba(0,0,0,.18); animation: pop2 140ms ease-out; }
+            :global{ @keyframes vignettePulse { 0% { opacity: 0; transform: scale(0.98); } 50% { opacity: 0.75; transform: scale(1); } 100% { opacity: 0; transform: scale(1.01); } } }
+            :global(.vignette){ animation: vignettePulse 0.32s ease-out forwards; }
+            :global(.vignette-hit){
+              background: radial-gradient(ellipse at center, transparent 58%, rgba(16,185,129,0.08) 72%, rgba(16,185,129,0.18) 88%, rgba(16,185,129,0.25) 100%);
+              mix-blend-mode: screen; filter: blur(8px);
+            }
+            :global(.vignette-miss){
+              background: radial-gradient(ellipse at center, transparent 58%, rgba(244,63,94,0.09) 72%, rgba(244,63,94,0.18) 88%, rgba(244,63,94,0.26) 100%);
+              mix-blend-mode: screen; filter: blur(8px); animation-duration: 0.36s;
+            }
+            @keyframes dotsMove { 0%{ background-position: 0 0, 80px 120px; } 100%{ background-position: 120px 160px, 0 0; } }
+            .ambient{ background-image:
+                radial-gradient(circle 1px at 20px 20px, rgba(0,0,0,.06) 99%, transparent 100%),
+                radial-gradient(circle 1px at 60px 60px, rgba(0,0,0,.045) 99%, transparent 100%);
+              background-size: 120px 160px, 120px 160px;
+              animation: dotsMove 12s linear infinite;
+            }
+            @keyframes burstUp { from{ transform: translate(-50%,-40%) scale(.9); opacity:.0;} 30%{opacity:1;} to{ transform: translate(-50%,-120%) scale(1); opacity:0; } }
+            .burst{ position:absolute; left:50%; top:50%; transform: translate(-50%,-40%); font-weight:900; font-size:28px; text-shadow: 0 6px 18px rgba(0,0,0,.18); animation: burstUp .65s ease-out forwards; }
+            .burst.ok{ color:#10b981; }
+            .burst.bad{ color:#f43f5e; }
+            @keyframes kshake { 0%{ transform: translateX(0);} 25%{ transform: translateX(-6px);} 50%{ transform: translateX(0);} 75%{ transform: translateX(6px);} 100%{ transform: translateX(0);} }
+            .shake{ animation: kshake 180ms ease-in-out; }
+          `}</style>
+        </div>
+
+        {/* Game Info Section */}
+        <div className="flex items-center justify-center w-full py-6 mt-4">
+          <GameInfoSection
+            title="Swipe Direction"
+            description="Reagiere schnell! Wenn ein Pfeil angezeigt wird, drücke die entsprechende Pfeiltaste oder WASD-Taste. Je schneller und präziser deine Reaktion, desto höher dein Score und deine Chance auf Tickets."
+            tags={["Reflexe", "Timing", "Arcade", "Casual"]}
+            tips={[
+              "Achte auf die Pfeile und reagiere schnell",
+              "Halte den Rhythmus – es geht um Konsistenz",
+              "Nutze Pfeiltasten oder WASD für maximale Geschwindigkeit"
+            ]}
+            rules={[
+              "Das Spiel dauert 30 Sekunden",
+              "Jede richtige Bewegung bringt Punkte",
+              "Mindestscore für Tickets: 500",
+              "Spielen ist kostenlos"
+            ]}
+            icon="👆"
+          />
+        </div>
       </div>
+
+      {/* Footer at bottom */}
       <SiteFooter />
-      </div>
-
     </div>
   );
 }

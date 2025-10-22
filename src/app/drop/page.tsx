@@ -4262,14 +4262,14 @@ function currentDailyPos() {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4" onClick={() => { setPopupLoading(false); setActiveTile(null); }}>
       <div className="max-w-[420px] w-full" onClick={(e) => e.stopPropagation()}>
         <CardFrame svg="/card-frame.svg" aspect="5/6" safePadding="0">
-          <div ref={modalContentRef} className="relative w-full h-full rounded-2xl overflow-visible bg-white">
+          <div ref={modalContentRef} className="relative w-full h-full rounded-2xl overflow-hidden bg-white">
             {popupLoading ? (
               <div className="flex items-center justify-center w-full h-full">
                 <div className="w-12 h-12 border-4 border-gray-200 border-t-black rounded-full animate-spin" aria-hidden />
               </div>
             ) : (
               <div className="flex flex-col h-full">
-                <div className="flex-1 px-6 pt-6 pb-4 overflow-y-auto">
+                <div className="flex-1 px-6 pt-6 pb-4 overflow-y-auto bg-white">
                   {/* Modal top-right countdown pill */}
                   <div className="absolute top-3 right-3 z-20">
                     <TileCountdown toMs={gridItems[activeTile]?.toMs} />
@@ -4292,7 +4292,7 @@ function currentDailyPos() {
                   </div>
                 </div>
 
-                <div className="px-6 pb-6">
+                <div className="px-6 pb-6 bg-white">
                   <div className="absolute left-6 right-6 bottom-2 flex flex-col items-center">
                     <button
                       ref={participateButtonRef}
@@ -4766,7 +4766,7 @@ function currentDailyPos() {
                         alt="Preise"
                         onLoad={() => { /* preloaded; no-op */ }}
                         onError={() => { setUrl('/drop-error.png'); }}
-                        className="pointer-events-none block mx-auto object-contain max-w-full max-h-[60vh] drop-shadow-2xl select-none opacity-100"
+                        className="pointer-events-none block mx-auto object-cover max-w-full max-h-[60vh] drop-shadow-2xl select-none opacity-100"
                       />
                     ) : (
                       <div className="block mx-auto max-w-full max-h-[60vh] aspect-[16/9] rounded-2xl border border-white/10 bg-gradient-to-br from-neutral-200 via-white to-neutral-100 opacity-100" />
@@ -5077,6 +5077,59 @@ function currentDailyPos() {
               <div className="border-t border-white/10" aria-hidden />
             </div>
           </div>
+
+        {/* Blog Entries Section */}
+        <div className="w-full py-8 bg-gradient-to-b from-black to-black/80">
+          <div className="max-w-6xl mx-auto px-4">
+            <h2 className="text-3xl font-bold text-white mb-6">Blog</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Blog Post Card 1 */}
+              <a href="#" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
+                <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative overflow-hidden">
+                  <div className="absolute inset-0 bg-emerald-500/10 group-hover:scale-105 transition-transform duration-300" />
+                  <span className="absolute top-2 left-2 bg-emerald-500 text-white text-xs font-semibold px-2 py-1 rounded">Tipps</span>
+                </div>
+                <div className="p-3">
+                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-emerald-400 transition-colors line-clamp-2">Die besten Strategien für Tap Rush</h3>
+                  <div className="flex items-center gap-2 text-xs text-white/50">
+                    <span>15. Okt</span>
+                    <span>5 min</span>
+                  </div>
+                </div>
+              </a>
+
+              {/* Blog Post Card 2 */}
+              <a href="#" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
+                <div className="aspect-video bg-gradient-to-br from-rose-500/20 to-rose-600/20 relative overflow-hidden">
+                  <div className="absolute inset-0 bg-rose-500/10 group-hover:scale-105 transition-transform duration-300" />
+                  <span className="absolute top-2 left-2 bg-rose-500 text-white text-xs font-semibold px-2 py-1 rounded">News</span>
+                </div>
+                <div className="p-3">
+                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-rose-400 transition-colors line-clamp-2">Halloween Gewinnspiel gestartet</h3>
+                  <div className="flex items-center gap-2 text-xs text-white/50">
+                    <span>22. Okt</span>
+                    <span>3 min</span>
+                  </div>
+                </div>
+              </a>
+
+              {/* Blog Post Card 3 */}
+              <a href="#" className="group bg-white/10 backdrop-blur-sm rounded-lg overflow-hidden hover:bg-white/20 transition-colors">
+                <div className="aspect-video bg-gradient-to-br from-blue-500/20 to-blue-600/20 relative overflow-hidden">
+                  <div className="absolute inset-0 bg-blue-500/10 group-hover:scale-105 transition-transform duration-300" />
+                  <span className="absolute top-2 left-2 bg-blue-500 text-white text-xs font-semibold px-2 py-1 rounded">Guide</span>
+                </div>
+                <div className="p-3">
+                  <h3 className="text-sm font-semibold text-white mb-1 group-hover:text-blue-400 transition-colors line-clamp-2">Verdiene mehr mit Referrals</h3>
+                  <div className="flex items-center gap-2 text-xs text-white/50">
+                    <span>10. Okt</span>
+                    <span>7 min</span>
+                  </div>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
 
   <div className="mt-auto">
     <SiteFooter />

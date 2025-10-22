@@ -166,6 +166,20 @@ export default function DatenschutzPage() {
               <p>Ort: Freiburg im Breisgau, Deutschland</p>
             </div>
           </section>
+
+          <section>
+            <h2 className="text-2xl font-bold mb-4">14. Ezoic Datenschutz</h2>
+            <p className="text-gray-300 mb-4">
+              Für spezifische Informationen zu Ezoic und seinen Partnern bezüglich Datenschutz, besuchen Sie bitte:
+              <a href="http://g.ezoic.net/privacy/drop-arcade.com" className="text-green-400 hover:underline block mt-2" target="_blank" rel="noopener noreferrer">
+                http://g.ezoic.net/privacy/drop-arcade.com
+              </a>
+            </p>
+            {/* Ezoic Privacy Policy Embed */}
+            <div className="mt-4">
+              <span id="ezoic-privacy-policy-embed" />
+            </div>
+          </section>
         </div>
 
         <div className="mt-12 pt-8 border-t border-gray-700">
@@ -173,6 +187,17 @@ export default function DatenschutzPage() {
             Zuletzt aktualisiert: Oktober 2025
           </p>
         </div>
+
+        {/* Ezoic Privacy Policy Embed Script */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            const script = document.createElement('script');
+            script.type = 'text/javascript';
+            script.src = '//g.ezoic.net/ezoic/privacy-drop-arcade.com.js';
+            script.async = true;
+            document.body.appendChild(script);
+          })();
+        ` }} />
       </div>
     </main>
   );
